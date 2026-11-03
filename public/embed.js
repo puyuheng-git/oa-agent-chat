@@ -61,7 +61,7 @@
     var win = el('div', { id: 'oa-agent-bubble-window', role: 'dialog', 'aria-label': title })
     var head = el('div', { 'class': 'oa-agent-head' })
     var actions = el('span', {})
-    var reload = el('button', { type: 'button', title: '重新连接' }, '\u21BB')
+    var reload = el('button', { type: 'button', title: '重新进入' }, '\u21BB')
     var close = el('button', { type: 'button', title: '关闭' }, '\u00D7')
     var frame = null
 
