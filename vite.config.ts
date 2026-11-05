@@ -18,8 +18,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // 固定 127.0.0.1，避免 Vite 默认打印/绑定 localhost（部分环境 IPv6 ::1 解析异常）
+      // 固定 IPv4 环回；npm scripts 另传 --host 127.0.0.1，双保险避免落到 localhost/::1
       host: '127.0.0.1',
+      port: 5173,
+      strictPort: true,
+      hmr: {
+        host: '127.0.0.1',
+        port: 5173,
+      },
       proxy: {
         '/v1': apiBase,
         '/healthz': apiBase,
@@ -28,6 +34,8 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host: '127.0.0.1',
+      port: 4173,
+      strictPort: true,
     },
     test: {
       environment: 'jsdom',

@@ -25,7 +25,7 @@ npm ci
 npm run dev
 ```
 
-开发服固定监听 `http://127.0.0.1:5173/`（不用 `localhost`）。浏览器需带有效 `?launch=...`（一般由 OA 302 注入）。无 `launch` 时会进入 `no_launch` 状态。
+开发服通过 `vite --host 127.0.0.1` 固定监听 **`http://127.0.0.1:5173/`**（请用该地址打开，不要用 `localhost`，以免落到 `::1`）。浏览器需带有效 `?launch=...`（一般由 OA 302 注入）。无 `launch` 时会进入 `no_launch` 状态。
 
 ## 构建与部署
 
