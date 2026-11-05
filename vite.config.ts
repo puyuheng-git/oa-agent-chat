@@ -18,11 +18,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // 固定 127.0.0.1，避免 Vite 默认打印/绑定 localhost（部分环境 IPv6 ::1 解析异常）
+      host: '127.0.0.1',
       proxy: {
         '/v1': apiBase,
         '/healthz': apiBase,
         '/readyz': apiBase,
       },
+    },
+    preview: {
+      host: '127.0.0.1',
     },
     test: {
       environment: 'jsdom',
