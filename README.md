@@ -8,15 +8,24 @@
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `VITE_API_BASE_URL` | 生产必填 | Agent Orchestrator API 根地址（**不含** `/v1/chat`）。示例：`https://agent-api.example.com`。构建时注入；本地 `npm run dev` 未设置时默认通过 Vite 代理转发到 `http://127.0.0.1:8000`。 |
+| `VITE_API_BASE_URL` | **生产必填** | Orchestrator API 根地址（**不含** `/v1/chat`）。构建时打进前端包。 |
+| `DEV_API_PROXY_TARGET` | 本地推荐 | 仅 `npm run dev`：Vite 把 `/v1` 等代理到此后端。**不要**在本地把后端写成 `VITE_API_BASE_URL`，否则浏览器会跨端口直连并触发 CORS。 |
 
-复制 `.env.example` 为 `.env.local` 后填写：
+本地 `.env.local` 示例（复制自 `.env.example`）：
 
 ```bash
-VITE_API_BASE_URL=https://your-agent-api.example.com
+# 本地留空，走同源代理
+# VITE_API_BASE_URL=
+DEV_API_PROXY_TARGET=http://127.0.0.1:8765
 ```
 
-所有聊天接口仍使用相对路径 `/v1/chat/*`，由上述 base 拼接；**请勿修改**请求/响应 JSON 契约。
+生产构建示例：
+
+```bash
+VITE_API_BASE_URL=https://your-agent-api.example.com npm run build
+```
+
+所有聊天接口仍使用相对路径 `/v1/chat/*`；有 `VITE_API_BASE_URL` 时再拼到该 base。**请勿修改**请求/响应 JSON 契约。
 
 ## 本地开发
 
@@ -25,7 +34,7 @@ npm ci
 npm run dev
 ```
 
-开发服通过 `vite --host 127.0.0.1` 固定监听 **`http://127.0.0.1:5173/`**（请用该地址打开，不要用 `localhost`，以免落到 `::1`）。浏览器需带有效 `?launch=...`（一般由 OA 302 注入）。无 `launch` 时会进入 `no_launch` 状态。
+开发服固定 **`http://127.0.0.1:5173/`**。浏览器请求同域 `/v1/chat/*`，由 Vite 代理到 `DEV_API_PROXY_TARGET`（默认 `http://127.0.0.1:8765`），无需 Orchestrator 配 CORS。打开时需带有效 `?launch=...`；无 `launch` 时进入 `no_launch`。
 
 ## 构建与部署
 
