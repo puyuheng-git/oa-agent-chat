@@ -1,5 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { MockAgentAdapter } from './adapter'
+import { MockAgentAdapter, mapRunStatus } from './adapter'
+
+describe('mapRunStatus', () => {
+  it('maps orchestrator waiting_input to waiting_input', () => {
+    expect(mapRunStatus('waiting_input')).toBe('waiting_input')
+  })
+
+  it('maps waiting_approval and intervention', () => {
+    expect(mapRunStatus('waiting_approval')).toBe('waiting_approval')
+    expect(mapRunStatus('intervention')).toBe('waiting_approval')
+  })
+})
 
 describe('MockAgentAdapter.syncLiveStatus elapsedMs', () => {
   beforeEach(() => {
