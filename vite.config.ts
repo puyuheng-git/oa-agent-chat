@@ -18,11 +18,24 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // 固定 IPv4 环回；npm scripts 另传 --host 127.0.0.1，双保险避免落到 localhost/::1
+      host: '127.0.0.1',
+      port: 5173,
+      strictPort: true,
+      hmr: {
+        host: '127.0.0.1',
+        port: 5173,
+      },
       proxy: {
         '/v1': apiBase,
         '/healthz': apiBase,
         '/readyz': apiBase,
       },
+    },
+    preview: {
+      host: '127.0.0.1',
+      port: 4173,
+      strictPort: true,
     },
     test: {
       environment: 'jsdom',
