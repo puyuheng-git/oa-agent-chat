@@ -52,4 +52,22 @@ describe('delivery', () => {
     expect(d?.mock).toBe(true)
     expect(d?.artifacts?.length).toBe(1)
   })
+
+  it('文件结果带上可下载的 Excel 票据', () => {
+    const d = deliveryFromReply({
+      type: 'markdown',
+      content: '已生成文件',
+      data: {
+        kind: 'file',
+        tool: 'builtin.export',
+        title: '导出.xlsx',
+        filename: '导出.xlsx',
+        ticket: 'ticket-1',
+        size_bytes: 2048,
+      },
+    })
+    expect(d?.artifacts?.[0]?.exportTicket).toBe('ticket-1')
+    expect(d?.artifacts?.[0]?.kind).toBe('xlsx')
+    expect(d?.artifacts?.[0]?.name).toBe('导出.xlsx')
+  })
 })

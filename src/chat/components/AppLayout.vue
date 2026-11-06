@@ -23,6 +23,7 @@ defineProps<{
   activeConversationId: string
   messages: ChatMessage[]
   sending: boolean
+  historyLoading?: boolean
   examples: string[]
   skillNames: string[]
   chatEnabled: boolean
@@ -88,6 +89,8 @@ const emit = defineEmits<{
         <ChatPanel
           :messages="messages"
           :sending="sending"
+          :history-loading="historyLoading"
+          :list-key="activeConversationId"
           :display-name="displayName"
           :examples="examples"
           :skill-names="skillNames"

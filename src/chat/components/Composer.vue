@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Paperclip, Promotion, VideoPause, Tools } from '@element-plus/icons-vue'
 import type { InputInstance } from 'element-plus'
 import AttachmentList from './AttachmentList.vue'
 import type { PendingAttachment } from '../types'
+import {
+  ACCEPT,
+  TYPE_HINT,
+  appendPending,
+  canSendMessage,
+  captionBesideFiles,
+  filesFromClipboard,
+} from './files-from-clipboard'
 
 const props = defineProps<{
   modelValue: string
@@ -24,7 +33,7 @@ const emit = defineEmits<{
 const fileInput = ref<HTMLInputElement | null>(null)
 const textInput = ref<InputInstance | null>(null)
 const focused = ref(false)
-const canSend = computed(() => !!props.modelValue.trim() && !props.sending)
+const canSend = computed(() => canSendMessage(props.modelValue, props.attachments.length, props.sending))
 
 watch(
   () => props.sending,
@@ -51,23 +60,50 @@ function pickFiles() {
   fileInput.value?.click()
 }
 
+function addFiles(files: File[]) {
+  if (!files.length) return
+  const { next, rejected } = appendPending(props.attachments, files)
+  if (rejected) ElMessage.warning(TYPE_HINT)
+  if (next === props.attachments) return
+  emit('update:attachments', next)
+}
+
 function onFiles(e: Event) {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files ?? [])
   input.value = ''
+  addFiles(files)
+}
+
+function nativeTextarea(): HTMLTextAreaElement | null {
+  const raw = textInput.value?.textarea as HTMLTextAreaElement | { value?: HTMLTextAreaElement | null } | undefined
+  if (!raw) return null
+  if (typeof HTMLTextAreaElement !== 'undefined' && raw instanceof HTMLTextAreaElement) return raw
+  return (raw as { value?: HTMLTextAreaElement | null }).value ?? null
+}
+
+function insertAtCursor(text: string) {
+  const current = props.modelValue
+  const el = nativeTextarea()
+  const start = el?.selectionStart ?? current.length
+  const end = el?.selectionEnd ?? start
+  const next = (current.slice(0, start) + text + current.slice(end)).slice(0, props.maxChars)
+  emit('update:modelValue', next)
+  const caret = Math.min(start + text.length, next.length)
+  void nextTick(() => {
+    const node = nativeTextarea()
+    node?.focus()
+    node?.setSelectionRange(caret, caret)
+  })
+}
+
+function onPaste(e: ClipboardEvent) {
+  const { files, text } = filesFromClipboard(e.clipboardData)
   if (!files.length) return
-  const next = [...props.attachments]
-  for (const f of files) {
-    next.push({
-      id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      name: f.name,
-      size: f.size,
-      mime: f.type || 'application/octet-stream',
-      file: f,
-      previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
-    })
-  }
-  emit('update:attachments', next)
+  e.preventDefault()
+  addFiles(files)
+  const caption = captionBesideFiles(text, files)
+  if (caption) insertAtCursor(caption)
 }
 
 function removeAtt(id: string) {
@@ -81,7 +117,7 @@ function removeAtt(id: string) {
 </script>
 
 <template>
-  <div class="composer">
+  <div class="composer" @paste="onPaste">
     <div class="composer-inner">
       <AttachmentList :items="attachments" @remove="removeAtt" />
       <p v-if="attachHint" class="attach-status">{{ attachHint }}</p>
@@ -102,7 +138,7 @@ function removeAtt(id: string) {
         />
         <div class="toolbar">
           <div class="left">
-            <el-tooltip content="上传附件到本地待发送列表（服务端上传未接入）" placement="top">
+            <el-tooltip content="添加附件，发送时再上传" placement="top">
               <button type="button" class="tool-btn" @click="pickFiles">
                 <el-icon :size="16"><Paperclip /></el-icon>
                 <span>附件</span>
@@ -114,7 +150,7 @@ function removeAtt(id: string) {
                 <span>工具</span>
               </button>
             </el-tooltip>
-            <input ref="fileInput" type="file" multiple class="hidden" @change="onFiles" />
+            <input ref="fileInput" type="file" multiple class="hidden" :accept="ACCEPT" @change="onFiles" />
           </div>
           <div class="right">
             <el-tooltip v-if="sending" content="停止接收本次回复（服务端任务可能仍在运行）" placement="top">
@@ -124,7 +160,7 @@ function removeAtt(id: string) {
               </button>
             </el-tooltip>
             <el-tooltip
-              :content="canSend ? '发送消息' : sending ? '正在生成中' : '请先输入内容'"
+              :content="canSend ? '发送消息' : sending ? '正在生成中' : '请输入内容或添加附件'"
               placement="top"
             >
               <button

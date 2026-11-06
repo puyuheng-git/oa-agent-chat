@@ -17,19 +17,20 @@ import {
   pollSettings,
   sendMessageStream,
   StreamAbortedError,
+  uploadAttachments,
   switchThread,
   takeLaunchCode,
   threadDisplayTitle,
   welcomeExamples,
   type ChatThreadItem,
   type SkillMenuItem,
-  type SwitchThreadResult,
 } from './api'
 import { MockAgentAdapter, mapRunStatus } from './agent/adapter'
-import { buildDelivery } from './delivery'
+import { buildDelivery, exportArtifact } from './delivery'
 import { isOrchestratorDownError, isSessionExpiredError } from './bootstrap-errors'
 import { backToOa, requestOaRelaunch } from './oa-relay'
 import AppLayout from './components/AppLayout.vue'
+import { canSendMessage } from './components/files-from-clipboard'
 import type {
   AgentTask,
   ChatMessage,
@@ -72,6 +73,8 @@ const activeNav = ref<NavKey>('conversations')
 const conversations = ref<LocalConversation[]>([])
 const activeConversationId = ref('')
 const loadingMessages = ref(false)
+/** 快速连点时，只采纳最后一次切换的结果。 */
+let viewGen = 0
 const messages = computed({
   get: () => conversations.value.find((c) => c.id === activeConversationId.value)?.messages ?? [],
   set: (list: ChatMessage[]) => {
@@ -111,6 +114,14 @@ function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+function rememberExport(reply: Parameters<typeof exportArtifact>[0]) {
+  const file = exportArtifact(reply)
+  if (!file) return
+  const task = currentTask.value
+  if (!task || task.mock) return
+  if (!task.artifacts.some((a) => a.exportTicket === file.exportTicket)) task.artifacts.push(file)
+}
+
 function convFromThread(t: ChatThreadItem): LocalConversation {
   const raw = (t.title ?? '').trim()
   return {
@@ -130,24 +141,10 @@ function mergeThreadList(items: ChatThreadItem[]) {
       ? {
           ...convFromThread(t),
           messages: prev.messages,
+          historyLoaded: prev.historyLoaded,
         }
       : convFromThread(t)
   })
-}
-
-function applySessionExtras(extras: SwitchThreadResult) {
-  if (extras.skills) {
-    skills.value = extras.skills
-    examples.value = welcomeExamples(skills.value)
-  }
-  if (extras.chat !== undefined) chatEnabled.value = !!extras.chat
-  if (extras.message_max_chars) maxChars.value = extras.message_max_chars
-  if (extras.poll_interval_seconds !== undefined || extras.poll_max_minutes !== undefined) {
-    poll = pollSettings({
-      poll_interval_seconds: extras.poll_interval_seconds,
-      poll_max_minutes: extras.poll_max_minutes,
-    })
-  }
 }
 
 async function loadThreads() {
@@ -175,17 +172,44 @@ async function loadThreads() {
   }
 }
 
-async function loadMessagesForThread(id: string) {
-  loadingMessages.value = true
+function rememberThreadMessages(id: string, items: Awaited<ReturnType<typeof getThreadMessages>>) {
+  const mapped = mapThreadMessages(items).map((m) => ({
+    ...m,
+    delivery: buildDelivery(m.reply, null) ?? undefined,
+  }))
+  const c = conversations.value.find((x) => x.id === id)
+  if (c) {
+    c.messages = mapped
+    c.historyLoaded = true
+  }
+  if (activeConversationId.value !== id) return
+  const lastFile = [...mapped].reverse().find((m) => exportArtifact(m.reply))
+  const file = lastFile ? exportArtifact(lastFile.reply) : null
+  if (!file) return
+  currentTask.value = {
+    id: file.id,
+    name: '导出文件',
+    status: 'completed',
+    progress: 100,
+    createdAt: Date.now(),
+    elapsedMs: 0,
+    steps: [],
+    tools: [],
+    artifacts: [file],
+    approvals: [],
+    mock: false,
+  }
+}
+
+async function loadMessagesForThread(id: string, gen = viewGen) {
+  const cached = conversations.value.find((c) => c.id === id)?.historyLoaded
+  if (!cached) loadingMessages.value = true
   try {
     const items = await getThreadMessages(id)
-    const mapped = mapThreadMessages(items).map((m) => ({
-      ...m,
-      delivery: buildDelivery(m.reply, null) ?? undefined,
-    }))
-    const c = conversations.value.find((x) => x.id === id)
-    if (c) c.messages = mapped
+    if (gen !== viewGen) return
+    rememberThreadMessages(id, items)
   } catch (e) {
+    if (gen !== viewGen) return
     const status = (e as { status?: number }).status
     if (status === 401) {
       expire()
@@ -193,7 +217,7 @@ async function loadMessagesForThread(id: string) {
     }
     ElMessage.error(errorMessage(e))
   } finally {
-    loadingMessages.value = false
+    if (gen === viewGen) loadingMessages.value = false
   }
 }
 
@@ -332,6 +356,7 @@ function pollRun(msg: ChatMessage, startedAt = Date.now()) {
         msg.text = plainText(r.reply.content)
         msg.delivery = buildDelivery(r.reply, currentTask.value) ?? undefined
         mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
+        rememberExport(r.reply)
         return
       }
       if (r.run_status) mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
@@ -352,115 +377,166 @@ function patchMessages(mutator: (list: ChatMessage[]) => void) {
   messages.value = list
 }
 
+function isUploadCancel(signal: AbortSignal, error?: unknown): boolean {
+  if (signal.aborted) return true
+  const name = (error as { name?: string } | undefined)?.name
+  return name === 'AbortError' || name === 'StreamAbortedError'
+}
+
+function clearSentDraft(pending: PendingAttachment[]) {
+  input.value = ''
+  const sent = new Set(pending.map((item) => item.id))
+  for (const item of pending) {
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+  }
+  attachments.value = attachments.value.filter((item) => !sent.has(item.id))
+}
+
+let sendInFlight = false
+
 async function send(text?: string) {
   const message = (text ?? input.value).trim()
-  if (!message || sending.value || !hasTicket()) return
+  const pending = attachments.value.slice()
+  if (sendInFlight || !canSendMessage(message, pending.length, sending.value) || !hasTicket()) return
   ensureActiveThread()
 
-  if (attachments.value.length) {
-    ElMessage.warning('附件上传接口尚未接入，本次仅发送文本；附件列表已保留在消息气泡中供演示。')
-  }
-
-  const atts = attachments.value.map(({ id, name, size, mime }) => ({ id, name, size, mime }))
-  patchMessages((list) => {
-    list.push({
-      id: uid('msg'),
-      role: 'user',
-      text: message,
-      createdAt: Date.now(),
-      attachments: atts.length ? atts : undefined,
-    })
-  })
-  input.value = ''
-  attachments.value.forEach((a) => a.previewUrl && URL.revokeObjectURL(a.previewUrl))
-  attachments.value = []
+  sendInFlight = true
   sending.value = true
-  mockAdapter.syncLiveStatus('running', message.slice(0, 28))
-
   abortCtrl = new AbortController()
-  let liveId: string | null = null
-  let streamRaw = ''
+  const signal = abortCtrl.signal
   try {
-    const r = await sendMessageStream(
-      message,
-      (piece) => {
-        if (!liveId) {
-          liveId = uid('msg')
-          streamRaw = ''
-          patchMessages((list) => {
-            list.push({ id: liveId!, role: 'assistant', text: '', streaming: true, createdAt: Date.now() })
-          })
+    let attachmentIds: string[] = []
+    if (pending.length) {
+      const files = pending.map((a) => a.file).filter((f): f is File => f instanceof File)
+      if (files.length !== pending.length) {
+        ElMessage.error('有附件缺少本地文件，请重新选择')
+        return
+      }
+      try {
+        const uploaded = await uploadAttachments(files, signal)
+        if (isUploadCancel(signal)) return
+        if (uploaded.length !== files.length || uploaded.some((item) => !item.file_id)) {
+          throw new Error('附件上传结果不完整，请重试')
         }
-        streamRaw += piece
-        const shown = plainText(streamRaw)
+        attachmentIds = uploaded.map((item) => item.file_id)
+      } catch (e) {
+        if (isUploadCancel(signal, e)) return
+        if ((e as { status?: number }).status === 401) {
+          expire()
+          return
+        }
+        ElMessage.error(errorMessage(e))
+        return
+      }
+    }
+    if (isUploadCancel(signal)) return
+
+    mockAdapter.syncLiveStatus('running', message.slice(0, 28))
+
+    let liveId: string | null = null
+    let streamRaw = ''
+    try {
+      const r = await sendMessageStream(
+        message,
+        (piece) => {
+          if (!liveId) {
+            liveId = uid('msg')
+            streamRaw = ''
+            patchMessages((list) => {
+              list.push({ id: liveId!, role: 'assistant', text: '', streaming: true, createdAt: Date.now() })
+            })
+          }
+          streamRaw += piece
+          const shown = plainText(streamRaw)
+          patchMessages((list) => {
+            const m = list.find((x) => x.id === liveId)
+            if (m) m.text = shown
+          })
+        },
+        signal,
+        attachmentIds,
+      )
+      const atts = pending.map((a, i) => ({
+        id: attachmentIds[i] || a.id,
+        name: a.name,
+        size: a.size,
+        mime: a.mime,
+      }))
+      const userMsg: ChatMessage = {
+        id: uid('msg'),
+        role: 'user',
+        text: message,
+        createdAt: Date.now(),
+        attachments: atts.length ? atts : undefined,
+      }
+      const delivery = buildDelivery(r.reply, currentTask.value)
+      const done: ChatMessage = {
+        id: liveId ?? uid('msg'),
+        role: 'assistant',
+        text: plainText(r.reply.content),
+        reply: r.reply,
+        runId: r.run_id,
+        streaming: false,
+        createdAt: Date.now(),
+        delivery: delivery ?? undefined,
+      }
+      patchMessages((list) => {
+        const idx = liveId ? list.findIndex((item) => item.id === liveId) : -1
+        if (idx >= 0) list.splice(idx, 0, userMsg)
+        else list.push(userMsg)
+        if (liveId) {
+          const m = list.find((item) => item.id === liveId)
+          if (m) Object.assign(m, done)
+          else list.push(done)
+        } else list.push(done)
+      })
+      clearSentDraft(pending)
+      mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
+      rememberExport(r.reply)
+      if (r.reply.type === 'pending') {
+        const last = messages.value[messages.value.length - 1]
+        if (last) pollRun(last)
+      }
+      void loadThreads()
+    } catch (e) {
+      if (e instanceof StreamAbortedError) {
         patchMessages((list) => {
-          const m = list.find((x) => x.id === liveId)
-          if (m) m.text = shown
+          if (liveId) {
+            const m = list.find((x) => x.id === liveId)
+            if (m) {
+              m.streaming = false
+              if (!m.text) m.text = '已停止生成'
+              m.reply = { type: 'text', content: m.text, data: null }
+            }
+          }
         })
-      },
-      abortCtrl.signal,
-    )
-    const delivery = buildDelivery(r.reply, currentTask.value)
-    const done: ChatMessage = {
-      id: liveId ?? uid('msg'),
-      role: 'assistant',
-      text: plainText(r.reply.content),
-      reply: r.reply,
-      runId: r.run_id,
-      streaming: false,
-      createdAt: Date.now(),
-      delivery: delivery ?? undefined,
-    }
-    patchMessages((list) => {
-      if (liveId) {
-        const m = list.find((x) => x.id === liveId)
-        if (m) Object.assign(m, done)
-        else list.push(done)
-      } else list.push(done)
-    })
-    mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
-    if (r.reply.type === 'pending') {
-      const last = messages.value[messages.value.length - 1]
-      if (last) pollRun(last)
-    }
-    void loadThreads()
-  } catch (e) {
-    if (e instanceof StreamAbortedError) {
+        mockAdapter.stop()
+        return
+      }
+      const status = (e as { status?: number }).status
+      if (status === 401) {
+        expire()
+        return
+      }
+      const failed: ChatMessage = {
+        id: liveId ?? uid('msg'),
+        role: 'assistant',
+        text: errorMessage(e),
+        reply: { type: 'error', content: errorMessage(e), data: null },
+        streaming: false,
+        createdAt: Date.now(),
+      }
       patchMessages((list) => {
         if (liveId) {
           const m = list.find((x) => x.id === liveId)
-          if (m) {
-            m.streaming = false
-            if (!m.text) m.text = '已停止生成'
-            m.reply = { type: 'text', content: m.text, data: null }
-          }
-        }
+          if (m) Object.assign(m, failed)
+          else list.push(failed)
+        } else list.push(failed)
       })
-      mockAdapter.stop()
-      return
+      mockAdapter.syncLiveStatus('failed')
     }
-    const status = (e as { status?: number }).status
-    if (status === 401) {
-      expire()
-      return
-    }
-    const failed: ChatMessage = {
-      id: liveId ?? uid('msg'),
-      role: 'assistant',
-      text: errorMessage(e),
-      reply: { type: 'error', content: errorMessage(e), data: null },
-      streaming: false,
-      createdAt: Date.now(),
-    }
-    patchMessages((list) => {
-      if (liveId) {
-        const m = list.find((x) => x.id === liveId)
-        if (m) Object.assign(m, failed)
-        else list.push(failed)
-      } else list.push(failed)
-    })
-    mockAdapter.syncLiveStatus('failed')
   } finally {
+    sendInFlight = false
     sending.value = false
     abortCtrl = null
   }
@@ -469,15 +545,17 @@ async function send(text?: string) {
 function stop() {
   abortCtrl?.abort()
   mockAdapter.stop()
-  sending.value = false
 }
 
 async function newChat() {
-  if (sending.value || loadingMessages.value) return
+  if (sending.value) return
+  viewGen += 1
+  loadingMessages.value = false
   try {
     const t = await createThread()
     threadId.value = t.thread_id
     const c = convFromThread(t)
+    c.historyLoaded = true
     conversations.value = [c, ...conversations.value.filter((x) => x.id !== t.thread_id)]
     activeConversationId.value = t.thread_id
     input.value = ''
@@ -496,24 +574,31 @@ async function newChat() {
 }
 
 async function selectConversation(id: string) {
-  if (id === activeConversationId.value || sending.value || loadingMessages.value) return
+  if (id === activeConversationId.value || sending.value) return
+  const previousId = activeConversationId.value
+  const gen = ++viewGen
   activeNav.value = 'conversations'
+  activeConversationId.value = id
+  currentTask.value = null
+  mockAdapter.dispose()
+  const messagesP = loadMessagesForThread(id, gen)
   try {
     const sw = await switchThread(id)
+    if (gen !== viewGen) return
     threadId.value = sw.thread_id
-    applySessionExtras(sw)
-    activeConversationId.value = id
-    currentTask.value = null
-    mockAdapter.dispose()
-    await loadMessagesForThread(id)
   } catch (e) {
+    if (gen !== viewGen) return
+    activeConversationId.value = previousId
+    loadingMessages.value = false
     const status = (e as { status?: number }).status
     if (status === 401) {
       expire()
       return
     }
     ElMessage.error(errorMessage(e))
+    return
   }
+  await messagesP
 }
 
 async function renameConversation(id: string, title: string) {
@@ -615,6 +700,18 @@ function onRegenerate(msg: ChatMessage) {
 watch(activeNav, (k) => {
   if (k === 'conversations') ensureActiveThread()
 })
+
+defineExpose({
+  send,
+  stop,
+  input,
+  sending,
+  attachments,
+  messages,
+  conversations,
+  activeConversationId,
+  threadId,
+})
 </script>
 
 <template>
@@ -666,6 +763,7 @@ watch(activeNav, (k) => {
       :active-conversation-id="activeConversationId"
       :messages="messages"
       :sending="sending"
+      :history-loading="loadingMessages"
       :examples="examples"
       :skill-names="skillNames"
       :chat-enabled="chatEnabled"

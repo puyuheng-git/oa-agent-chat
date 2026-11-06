@@ -1,5 +1,21 @@
 import type { Reply } from './api'
-import type { AgentTask, DeliverySummary } from './types'
+import type { AgentTask, ArtifactFile, DeliverySummary } from './types'
+
+export function exportArtifact(reply: Reply | undefined): ArtifactFile | null {
+  const data = reply?.data
+  if (!data || data.kind !== 'file' || !data.ticket) return null
+  const size = data.size_bytes
+  return {
+    id: data.ticket,
+    name: data.filename || '导出.xlsx',
+    kind: data.filename?.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'generic',
+    sizeLabel: typeof size === 'number' && size > 0 ? `${Math.max(1, Math.round(size / 1024))} KB` : 'Excel',
+    status: 'ready',
+    previewable: false,
+    exportTicket: data.ticket,
+    previewNote: '点下载保存到本机。链接只能用一次。',
+  }
+}
 
 /** 从真实 Reply 结构化数据生成交付摘要；无数据时返回 null。 */
 export function deliveryFromReply(reply: Reply | undefined): DeliverySummary | null {
@@ -15,6 +31,19 @@ export function deliveryFromReply(reply: Reply | undefined): DeliverySummary | n
       ],
       mock: false,
       hasStructuredData: true,
+    }
+  }
+  if (reply.data.kind === 'file') {
+    const file = exportArtifact(reply)
+    return {
+      title: reply.data.filename || '文件已生成',
+      highlights: [
+        { label: '文件', value: reply.data.filename || '导出.xlsx' },
+        { label: '格式', value: 'Excel' },
+      ],
+      mock: false,
+      hasStructuredData: false,
+      artifacts: file ? [file] : [],
     }
   }
   if (reply.data.kind === 'record') {
