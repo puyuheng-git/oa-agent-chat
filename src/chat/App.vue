@@ -233,7 +233,42 @@ function expire(message?: string) {
   state.value = 'expired'
 }
 
+function bootstrapDemoShell() {
+  displayName.value = '演示员工'
+  threadId.value = 'demo_thread'
+  activeConversationId.value = 'demo_thread'
+  chatEnabled.value = true
+  examples.value = ['帮我查本月报销进度', '汇总待我审批的单据']
+  skills.value = [
+    {
+      name: 'oa_query',
+      display_name: 'OA 查询',
+      description: '演示能力',
+      examples: ['帮我查本月报销进度'],
+    },
+  ]
+  conversations.value = Array.from({ length: 14 }, (_, i) => ({
+    id: `demo_${i + 1}`,
+    title: i === 0 ? '本月报销进度咨询' : `历史会话示例 ${i + 1}`,
+    updatedAt: Date.now() - i * 3600_000,
+    messages: [],
+    lastChannel: i % 2 === 0 ? 'oa_web' : 'wecom',
+  }))
+  activeConversationId.value = conversations.value[0].id
+  threadId.value = conversations.value[0].id
+  state.value = 'ready'
+}
+
 async function bootstrap(fromRetry = false) {
+  if (
+    import.meta.env.DEV &&
+    !fromRetry &&
+    new URLSearchParams(window.location.search).get('demo') === '1'
+  ) {
+    bootstrapDemoShell()
+    return
+  }
+
   if (!fromRetry) {
     const code = takeLaunchCode()
     if (!code) {

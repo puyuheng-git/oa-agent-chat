@@ -59,10 +59,12 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.86);
   border-bottom: 1px solid var(--ds-line);
   flex-shrink: 0;
   z-index: 5;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 .left,
 .right {
@@ -117,12 +119,20 @@ const emit = defineEmits<{
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ds-title);
+  transition: background 0.18s, color 0.18s, border-color 0.18s, transform 0.18s var(--ds-ease),
+    box-shadow 0.18s;
 }
 .icon-btn:hover,
 .ghost-btn:hover {
   background: var(--ds-brand-soft);
   color: var(--ds-brand);
   border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 138, 231, 0.12);
+}
+.icon-btn:active,
+.ghost-btn:active {
+  transform: translateY(0);
 }
 .user {
   display: flex;
