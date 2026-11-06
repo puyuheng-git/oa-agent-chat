@@ -133,7 +133,10 @@ const emit = defineEmits<{
   height: 100vh;
   width: 100%;
   overflow: hidden;
-  background: var(--ds-page);
+  background:
+    radial-gradient(1200px 480px at 12% -10%, rgba(0, 138, 231, 0.08), transparent 60%),
+    radial-gradient(900px 420px at 88% 0%, rgba(0, 117, 199, 0.05), transparent 55%),
+    var(--ds-page);
 }
 .main {
   flex: 1;
@@ -141,6 +144,7 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   height: 100%;
+  animation: main-in 0.38s var(--ds-ease) both;
 }
 .workspace {
   flex: 1;
@@ -150,6 +154,17 @@ const emit = defineEmits<{
 }
 .backdrop {
   display: none;
+}
+
+@keyframes main-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @media (max-width: 1100px) {
@@ -170,6 +185,23 @@ const emit = defineEmits<{
     inset: 0;
     background: rgba(16, 32, 56, 0.4);
     z-index: 45;
+    animation: fade-backdrop 0.22s var(--ds-ease) both;
+  }
+}
+
+@keyframes fade-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main,
+  .mobile-backdrop {
+    animation: none;
   }
 }
 </style>

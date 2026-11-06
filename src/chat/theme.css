@@ -18,10 +18,10 @@
   --ds-warning-bg: #fffaeb;
   --ds-danger: #f04438;
   --ds-danger-bg: #fef3f2;
-  --ds-sidebar-w: 248px;
-  --ds-sidebar-collapsed: 72px;
+  --ds-sidebar-w: 272px;
+  --ds-sidebar-collapsed: 76px;
   --ds-inspector-w: 300px;
-  --ds-header-h: 48px;
+  --ds-header-h: 52px;
   --ds-chat-max: 680px;
   --ds-radius: 10px;
   --ds-radius-sm: 8px;
@@ -32,6 +32,7 @@
   --ds-font: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
     'Helvetica Neue', sans-serif;
   --ds-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ds-ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
   --ds-text: 15px;
   --ds-text-sm: 13px;
   --ds-text-xs: 12px;
