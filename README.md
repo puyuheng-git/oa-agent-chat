@@ -40,10 +40,12 @@ npm run dev
 
 ```bash
 npm ci
-npm run build
+VITE_API_BASE_URL=https://your-agent-api.example.com npm run build
 ```
 
 产物在 `dist/`。将 **整个 `dist` 目录** 部署到静态站点（Nginx、OSS+CDN、S3 等均可）。
+
+完整步骤见 **[docs/DEPLOY.md](docs/DEPLOY.md)**（含 **OA 换码 / embed / postMessage** 与 **Agent `/v1/chat/*` API 契约**、Nginx/CDN、检查清单与故障速查）。
 
 ### OA 侧如何指向本静态 URL
 
@@ -71,7 +73,7 @@ npm run build
 add_header Content-Security-Policy "frame-ancestors 'self' https://oa.example.com https://*.oa.example.com" always;
 ```
 
-同时确保静态资源允许跨域访问 API：`VITE_API_BASE_URL` 指向的 Orchestrator 需为聊天域名配置 CORS（含 `Authorization` 头）。对话壳对跨域 API 使用 Bearer ticket，不依赖 API  Cookie。
+同时确保静态资源允许跨域访问 API：`VITE_API_BASE_URL` 指向的 Orchestrator 需为聊天域名配置 CORS（含 `Authorization` 头）。对话壳对跨域 API 使用 Bearer ticket，不依赖 API Cookie。
 
 ## 页面状态
 
