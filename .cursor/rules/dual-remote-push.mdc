@@ -1,0 +1,20 @@
+---
+description: Always push to both GitHub and GitLab remotes
+alwaysApply: true
+---
+
+# Dual remote push
+
+Whenever pushing git branches for this repository, push to **both** remotes:
+
+- `origin` → `https://github.com/puyuheng-git/oa-agent-chat` (GitHub)
+- `gitlab` → `ssh://git@gitlab.dev.xkmking.com:2222/frontend/oa-agent.git` (GitLab)
+
+`origin` is configured with two push URLs so `git push -u origin <branch>` should update both. If a push only succeeds on one remote, explicitly push the other:
+
+```bash
+git push -u origin <branch-name>
+git push -u gitlab <branch-name>
+```
+
+Do not consider a push complete until both remotes have the branch tip, unless one remote is unreachable after retries.
