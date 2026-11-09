@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Document,
   Plus,
@@ -40,9 +40,9 @@ const emit = defineEmits<{
 const query = ref('')
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
-/** 侧栏展开时，分区默认收起，给对话列表更多空间 */
+/** 工作空间默认收起；管理中心默认展开，保证底部入口始终可见 */
 const workspaceOpen = ref(false)
-const manageOpen = ref(false)
+const manageOpen = ref(true)
 
 const workspaceItems: { key: NavKey; label: string; icon: unknown }[] = [
   { key: 'workspace', label: '工作空间', icon: OfficeBuilding },
@@ -62,6 +62,16 @@ const filtered = computed(() => {
   if (!q) return props.conversations
   return props.conversations.filter((c) => threadDisplayTitle(c.title).toLowerCase().includes(q))
 })
+
+watch(
+  () => props.collapsed,
+  (c) => {
+    if (c) {
+      workspaceOpen.value = true
+      manageOpen.value = true
+    }
+  },
+)
 
 function channelLabel(ch: string | null | undefined) {
   if (!ch) return ''
@@ -91,11 +101,25 @@ function onRemove(id: string, e: Event) {
   e.stopPropagation()
   emit('remove', id)
 }
+
+function toggleWorkspace() {
+  workspaceOpen.value = !workspaceOpen.value
+}
+
+function toggleManage() {
+  manageOpen.value = !manageOpen.value
+}
 </script>
 
 <template>
   <aside :class="['sidebar', { collapsed }]">
-    <div class="sidebar-bg" aria-hidden="true" />
+    <div class="sidebar-bg" aria-hidden="true">
+      <span class="orb orb-a" />
+      <span class="orb orb-b" />
+      <span class="orb orb-c" />
+      <span class="shine" />
+    </div>
+
     <div class="brand">
       <div class="logo" aria-hidden="true"><span>东</span></div>
       <div v-if="!collapsed" class="brand-text">
@@ -104,9 +128,7 @@ function onRemove(id: string, e: Event) {
       </div>
     </div>
 
-    <!-- 对话区 -->
-    <section class="group">
-      <div v-if="!collapsed" class="group-title">对话</div>
+    <div class="sidebar-top">
       <button type="button" class="new-chat" @click="emit('new-chat')">
         <el-icon :size="16"><Plus /></el-icon>
         <span v-if="!collapsed">新对话</span>
@@ -116,9 +138,18 @@ function onRemove(id: string, e: Event) {
         <el-icon class="search-ico"><Search /></el-icon>
         <input v-model="query" type="search" placeholder="搜索历史会话" aria-label="搜索历史会话" />
       </div>
+    </div>
 
+    <!-- 历史会话：独占弹性滚动区，不再与底部导航抢高度 -->
+    <section class="conv-zone" aria-label="历史会话">
+      <div v-if="!collapsed" class="zone-label">历史会话</div>
       <ul v-if="!collapsed" class="conv-list">
-        <li v-for="c in filtered" :key="c.id">
+        <li
+          v-for="(c, idx) in filtered"
+          :key="c.id"
+          class="conv-li"
+          :style="{ '--i': String(idx) }"
+        >
           <div
             :class="['conv', { active: c.id === activeConversationId }]"
             @click="emit('select', c.id)"
@@ -161,65 +192,79 @@ function onRemove(id: string, e: Event) {
           {{ query.trim() ? '无匹配会话' : '暂无对话记录' }}
         </li>
       </ul>
+      <div v-else class="collapsed-hint" title="展开查看历史会话">
+        <el-icon :size="18"><List /></el-icon>
+      </div>
     </section>
 
-    <!-- 工作空间 -->
-    <nav class="group">
-      <button
-        v-if="!collapsed"
-        type="button"
-        class="group-toggle"
-        :aria-expanded="workspaceOpen"
-        @click="workspaceOpen = !workspaceOpen"
-      >
-        <span>工作空间</span>
-        <el-icon :size="14" :class="['chevron', { open: workspaceOpen }]"><ArrowDown /></el-icon>
-      </button>
-      <div v-show="collapsed || workspaceOpen" class="group-body">
+    <!-- 底部停靠：工作空间 + 管理中心，始终完整可见 -->
+    <div class="sidebar-dock">
+      <nav class="dock-block" aria-label="工作空间">
         <button
-          v-for="item in workspaceItems"
-          :key="item.key"
+          v-if="!collapsed"
           type="button"
-          :class="['nav-item', { active: activeNav === item.key }]"
-          :title="item.label"
-          @click="emit('update:activeNav', item.key)"
+          class="group-toggle"
+          :aria-expanded="workspaceOpen"
+          @click="toggleWorkspace"
         >
-          <el-icon :size="18"><component :is="item.icon" /></el-icon>
-          <span v-if="!collapsed">{{ item.label }}</span>
+          <span>工作空间</span>
+          <el-icon :size="14" :class="['chevron', { open: workspaceOpen }]"><ArrowDown /></el-icon>
         </button>
-      </div>
-    </nav>
+        <div :class="['accordion', { open: collapsed || workspaceOpen }]">
+          <div class="accordion-inner">
+            <div class="group-body">
+              <button
+                v-for="item in workspaceItems"
+                :key="item.key"
+                type="button"
+                :class="['nav-item', { active: activeNav === item.key }]"
+                :title="item.label"
+                @click="emit('update:activeNav', item.key)"
+              >
+                <el-icon :size="18"><component :is="item.icon" /></el-icon>
+                <span v-if="!collapsed">{{ item.label }}</span>
+                <span v-if="!collapsed && activeNav === item.key" class="nav-dot" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
 
-    <!-- 管理中心 -->
-    <nav class="group grow">
-      <button
-        v-if="!collapsed"
-        type="button"
-        class="group-toggle"
-        :aria-expanded="manageOpen"
-        @click="manageOpen = !manageOpen"
-      >
-        <span>管理中心</span>
-        <el-icon :size="14" :class="['chevron', { open: manageOpen }]"><ArrowDown /></el-icon>
-      </button>
-      <div v-show="collapsed || manageOpen" class="group-body">
-        <button type="button" class="nav-item" title="我的记忆" @click="emit('open-memory')">
-          <el-icon :size="18"><Notebook /></el-icon>
-          <span v-if="!collapsed">我的记忆</span>
-        </button>
+      <nav class="dock-block manage" aria-label="管理中心">
         <button
-          v-for="item in manageItems"
-          :key="item.key"
+          v-if="!collapsed"
           type="button"
-          :class="['nav-item', { active: activeNav === item.key }]"
-          :title="item.label"
-          @click="emit('update:activeNav', item.key)"
+          class="group-toggle"
+          :aria-expanded="manageOpen"
+          @click="toggleManage"
         >
-          <el-icon :size="18"><component :is="item.icon" /></el-icon>
-          <span v-if="!collapsed">{{ item.label }}</span>
+          <span>管理中心</span>
+          <el-icon :size="14" :class="['chevron', { open: manageOpen }]"><ArrowDown /></el-icon>
         </button>
-      </div>
-    </nav>
+        <div :class="['accordion', { open: collapsed || manageOpen }]">
+          <div class="accordion-inner">
+            <div class="group-body manage-body">
+              <button type="button" class="nav-item" title="我的记忆" @click="emit('open-memory')">
+                <el-icon :size="18"><Notebook /></el-icon>
+                <span v-if="!collapsed">我的记忆</span>
+              </button>
+              <button
+                v-for="item in manageItems"
+                :key="item.key"
+                type="button"
+                :class="['nav-item', { active: activeNav === item.key }]"
+                :title="item.label"
+                @click="emit('update:activeNav', item.key)"
+              >
+                <el-icon :size="18"><component :is="item.icon" /></el-icon>
+                <span v-if="!collapsed">{{ item.label }}</span>
+                <span v-if="!collapsed && activeNav === item.key" class="nav-dot" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </div>
 
     <button
       type="button"
@@ -238,6 +283,7 @@ function onRemove(id: string, e: Event) {
 
 <style scoped>
 .sidebar {
+  --dock-pad: 8px;
   position: relative;
   width: var(--ds-sidebar-w);
   color: #fff;
@@ -245,38 +291,114 @@ function onRemove(id: string, e: Event) {
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  transition: width 0.28s var(--ds-ease);
+  transition: width 0.32s var(--ds-ease);
   flex-shrink: 0;
   overflow: hidden;
   z-index: 2;
+  isolation: isolate;
+  contain: layout style;
 }
 .sidebar-bg {
   position: absolute;
   inset: 0;
-  background: linear-gradient(165deg, #1296eb 0%, #008ae7 48%, #0070c0 100%);
+  background: linear-gradient(168deg, #1aa3f0 0%, #008ae7 42%, #0068b8 100%);
   z-index: -1;
+  overflow: hidden;
 }
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(2px);
+  opacity: 0.45;
+  pointer-events: none;
+  will-change: transform;
+  animation: orb-drift 18s var(--ds-ease) infinite alternate;
+}
+.orb-a {
+  width: 160px;
+  height: 160px;
+  top: -48px;
+  right: -40px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 70%);
+}
+.orb-b {
+  width: 120px;
+  height: 120px;
+  bottom: 18%;
+  left: -36px;
+  background: radial-gradient(circle, rgba(120, 210, 255, 0.5) 0%, rgba(0, 100, 180, 0) 72%);
+  animation-duration: 22s;
+  animation-delay: -4s;
+}
+.orb-c {
+  width: 90px;
+  height: 90px;
+  bottom: 8%;
+  right: 10%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.28) 0%, transparent 70%);
+  animation-duration: 14s;
+  animation-delay: -8s;
+}
+.shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.08) 48%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: shine-sweep 9s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes orb-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(12px, 18px, 0) scale(1.08);
+  }
+}
+@keyframes shine-sweep {
+  0%,
+  100% {
+    background-position: 120% 0;
+  }
+  50% {
+    background-position: -20% 0;
+  }
+}
+
 .sidebar.collapsed {
   width: var(--ds-sidebar-collapsed);
 }
+
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 14px 10px;
+  padding: 16px 14px 12px;
+  flex-shrink: 0;
 }
 .logo {
   width: 36px;
   height: 36px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   font-weight: 800;
   font-size: 15px;
+  box-shadow: 0 4px 14px rgba(0, 60, 120, 0.18);
+  transition: transform 0.28s var(--ds-ease), box-shadow 0.28s var(--ds-ease);
+}
+.logo:hover {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 8px 18px rgba(0, 60, 120, 0.22);
 }
 .brand-text {
   display: flex;
@@ -284,60 +406,29 @@ function onRemove(id: string, e: Event) {
   gap: 2px;
   min-width: 0;
   line-height: 1.25;
+  animation: fade-rise 0.35s var(--ds-ease) both;
 }
 .brand-text strong {
   font-size: 14px;
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .brand-text span {
   font-size: 12px;
   opacity: 0.85;
 }
-.group {
-  padding: 0 10px 6px;
-  min-height: 0;
+
+.sidebar-top {
+  padding: 0 10px 8px;
+  flex-shrink: 0;
 }
-.group.grow {
-  flex: 1;
-  overflow-y: auto;
-}
-.group-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 4px 0 2px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.group-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-.chevron {
-  transition: transform 0.2s var(--ds-ease);
-  opacity: 0.85;
-}
-.chevron.open {
-  transform: rotate(180deg);
-}
-.group-body {
-  padding-bottom: 2px;
-}
+
 .new-chat {
   width: 100%;
-  height: 38px;
+  height: 40px;
   margin-bottom: 8px;
   border: none;
-  border-radius: 10px;
+  border-radius: 11px;
   background: #fff;
   color: var(--ds-brand);
   display: flex;
@@ -347,25 +438,38 @@ function onRemove(id: string, e: Event) {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0, 50, 100, 0.12);
+  transition: transform 0.2s var(--ds-ease), box-shadow 0.2s var(--ds-ease), filter 0.2s;
 }
 .new-chat:hover {
-  filter: brightness(0.98);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(0, 50, 100, 0.16);
+  filter: brightness(1.02);
+}
+.new-chat:active {
+  transform: translateY(0) scale(0.98);
 }
 .sidebar.collapsed .new-chat {
   width: 44px;
   margin-inline: auto;
   padding: 0;
 }
+
 .search {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  margin-bottom: 6px;
+  height: 36px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.search:focus-within {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.36);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
 .search-ico {
   opacity: 0.8;
@@ -383,25 +487,53 @@ function onRemove(id: string, e: Event) {
 .search input::placeholder {
   color: rgba(255, 255, 255, 0.65);
 }
+
+.conv-zone {
+  flex: 1 1 auto;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px 6px;
+  overflow: hidden;
+}
+.zone-label {
+  flex-shrink: 0;
+  margin: 2px 0 6px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
 .conv-list {
   list-style: none;
-  margin: 0 0 4px;
-  padding: 0;
-  max-height: min(52vh, 420px);
+  margin: 0;
+  padding: 0 0 4px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.conv-li {
+  animation: fade-rise 0.32s var(--ds-ease) both;
+  animation-delay: calc(min(var(--i), 8) * 28ms);
 }
 .conv {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  min-height: 36px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.18s, transform 0.18s var(--ds-ease);
 }
 .conv:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateX(2px);
 }
 .conv.active {
   background: rgba(255, 255, 255, 0.24);
@@ -453,9 +585,11 @@ function onRemove(id: string, e: Event) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s, transform 0.15s;
 }
 .conv-acts button:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.22);
+  transform: scale(1.06);
 }
 .rename-input {
   flex: 1;
@@ -468,11 +602,105 @@ function onRemove(id: string, e: Event) {
   color: var(--ds-title);
 }
 .empty-hint {
-  padding: 8px 10px;
+  padding: 12px 10px;
   font-size: 12px;
   opacity: 0.75;
 }
+.collapsed-hint {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  opacity: 0.7;
+}
+
+.sidebar-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(0, 70, 130, 0.12) 0%, rgba(0, 55, 110, 0.22) 100%);
+  /* 保证管理中心展开时仍有充足可视高度，历史区自行收缩滚动 */
+  min-height: min(268px, 42vh);
+  max-height: min(58vh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.dock-block {
+  border-radius: 12px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.dock-block:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.dock-block.manage {
+  min-height: 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.group-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.chevron {
+  transition: transform 0.28s var(--ds-ease);
+  opacity: 0.85;
+}
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+/* GPU 友好手风琴：用 grid 行高过渡，避免 max-height 卡顿 */
+.accordion {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s var(--ds-ease);
+  pointer-events: none;
+}
+.accordion.open {
+  grid-template-rows: 1fr;
+  pointer-events: auto;
+}
+.accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px 6px;
+}
+.manage-body {
+  padding-bottom: 8px;
+  gap: 3px;
+}
+
 .nav-item {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
@@ -481,40 +709,83 @@ function onRemove(id: string, e: Event) {
   background: transparent;
   color: #fff;
   text-align: left;
-  padding: 9px 10px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 550;
   cursor: pointer;
+  transition: background 0.18s, transform 0.18s var(--ds-ease), padding 0.18s;
 }
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateX(3px);
 }
 .nav-item.active {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.22);
   font-weight: 650;
+  box-shadow: inset 3px 0 0 #fff;
+}
+.nav-dot {
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
 }
 .sidebar.collapsed .nav-item {
   justify-content: center;
   padding-inline: 0;
 }
+.sidebar.collapsed .nav-item:hover {
+  transform: none;
+}
+
 .collapse-btn {
-  margin: 4px 10px 12px;
+  margin: 6px 10px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.95);
-  padding: 9px 10px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 13px;
+  flex-shrink: 0;
+  transition: background 0.18s, transform 0.18s var(--ds-ease), border-color 0.18s;
 }
 .collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
 }
 .sidebar.collapsed .collapse-btn {
   justify-content: center;
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 768px) {
@@ -524,13 +795,36 @@ function onRemove(id: string, e: Event) {
     top: 0;
     bottom: 0;
     z-index: 50;
-    width: min(288px, 86vw) !important;
+    width: min(300px, 88vw) !important;
     transform: translateX(-105%);
     box-shadow: 12px 0 40px rgba(23, 43, 77, 0.28);
     transition: transform 0.28s var(--ds-ease);
   }
   .sidebar:not(.collapsed) {
     transform: translateX(0);
+  }
+  .sidebar-dock {
+    max-height: min(46vh, 360px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .shine,
+  .nav-dot,
+  .conv-li,
+  .brand-text {
+    animation: none !important;
+  }
+  .accordion {
+    transition: none;
+  }
+  .nav-item:hover,
+  .conv:hover,
+  .new-chat:hover,
+  .collapse-btn:hover,
+  .logo:hover {
+    transform: none;
   }
 }
 </style>
