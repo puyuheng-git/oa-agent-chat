@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import {
   Document,
   Plus,
@@ -40,7 +40,7 @@ const emit = defineEmits<{
 const query = ref('')
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
-/** 工作空间默认收起；管理中心默认展开，保证底部入口始终可见 */
+/** 分区展开状态独立于侧栏收起，避免「展开导航」时被强制全部打开 */
 const workspaceOpen = ref(false)
 const manageOpen = ref(true)
 
@@ -57,21 +57,23 @@ const manageItems: { key: NavKey; label: string; icon: unknown }[] = [
   { key: 'settings', label: '设置', icon: Setting },
 ]
 
+type CollapsedNavKey = NavKey | 'memory'
+const collapsedNavItems: { key: CollapsedNavKey; label: string; icon: unknown }[] = [
+  ...workspaceItems,
+  { key: 'memory', label: '我的记忆', icon: Notebook },
+  ...manageItems,
+]
+
+function onCollapsedNav(key: CollapsedNavKey) {
+  if (key === 'memory') emit('open-memory')
+  else emit('update:activeNav', key)
+}
+
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return props.conversations
   return props.conversations.filter((c) => threadDisplayTitle(c.title).toLowerCase().includes(q))
 })
-
-watch(
-  () => props.collapsed,
-  (c) => {
-    if (c) {
-      workspaceOpen.value = true
-      manageOpen.value = true
-    }
-  },
-)
 
 function channelLabel(ch: string | null | undefined) {
   if (!ch) return ''
@@ -141,15 +143,10 @@ function toggleManage() {
     </div>
 
     <!-- 历史会话：独占弹性滚动区，不再与底部导航抢高度 -->
-    <section class="conv-zone" aria-label="历史会话">
-      <div v-if="!collapsed" class="zone-label">历史会话</div>
-      <ul v-if="!collapsed" class="conv-list">
-        <li
-          v-for="(c, idx) in filtered"
-          :key="c.id"
-          class="conv-li"
-          :style="{ '--i': String(idx) }"
-        >
+    <section v-show="!collapsed" class="conv-zone" aria-label="历史会话">
+      <div class="zone-label">历史会话</div>
+      <ul class="conv-list">
+        <li v-for="c in filtered" :key="c.id" class="conv-li">
           <div
             :class="['conv', { active: c.id === activeConversationId }]"
             @click="emit('select', c.id)"
@@ -192,16 +189,26 @@ function toggleManage() {
           {{ query.trim() ? '无匹配会话' : '暂无对话记录' }}
         </li>
       </ul>
-      <div v-else class="collapsed-hint" title="展开查看历史会话">
-        <el-icon :size="18"><List /></el-icon>
-      </div>
     </section>
 
-    <!-- 底部停靠：工作空间 + 管理中心，始终完整可见 -->
-    <div class="sidebar-dock">
+    <!-- 收起态：独立图标轨，不改动分区展开状态，避免展开导航时整组弹开卡顿 -->
+    <nav v-if="collapsed" class="collapsed-rail" aria-label="快捷导航">
+      <button
+        v-for="item in collapsedNavItems"
+        :key="item.key"
+        type="button"
+        :class="['nav-item', { active: item.key !== 'memory' && activeNav === item.key }]"
+        :title="item.label"
+        @click="onCollapsedNav(item.key)"
+      >
+        <el-icon :size="18"><component :is="item.icon" /></el-icon>
+      </button>
+    </nav>
+
+    <!-- 展开态底部停靠：工作空间 + 管理中心 -->
+    <div v-else class="sidebar-dock">
       <nav class="dock-block" aria-label="工作空间">
         <button
-          v-if="!collapsed"
           type="button"
           class="group-toggle"
           :aria-expanded="workspaceOpen"
@@ -210,7 +217,7 @@ function toggleManage() {
           <span>工作空间</span>
           <el-icon :size="14" :class="['chevron', { open: workspaceOpen }]"><ArrowDown /></el-icon>
         </button>
-        <div :class="['accordion', { open: collapsed || workspaceOpen }]">
+        <div :class="['accordion', { open: workspaceOpen }]">
           <div class="accordion-inner">
             <div class="group-body">
               <button
@@ -222,8 +229,8 @@ function toggleManage() {
                 @click="emit('update:activeNav', item.key)"
               >
                 <el-icon :size="18"><component :is="item.icon" /></el-icon>
-                <span v-if="!collapsed">{{ item.label }}</span>
-                <span v-if="!collapsed && activeNav === item.key" class="nav-dot" aria-hidden="true" />
+                <span>{{ item.label }}</span>
+                <span v-if="activeNav === item.key" class="nav-dot" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -232,7 +239,6 @@ function toggleManage() {
 
       <nav class="dock-block manage" aria-label="管理中心">
         <button
-          v-if="!collapsed"
           type="button"
           class="group-toggle"
           :aria-expanded="manageOpen"
@@ -241,12 +247,12 @@ function toggleManage() {
           <span>管理中心</span>
           <el-icon :size="14" :class="['chevron', { open: manageOpen }]"><ArrowDown /></el-icon>
         </button>
-        <div :class="['accordion', { open: collapsed || manageOpen }]">
+        <div :class="['accordion', { open: manageOpen }]">
           <div class="accordion-inner">
             <div class="group-body manage-body">
               <button type="button" class="nav-item" title="我的记忆" @click="emit('open-memory')">
                 <el-icon :size="18"><Notebook /></el-icon>
-                <span v-if="!collapsed">我的记忆</span>
+                <span>我的记忆</span>
               </button>
               <button
                 v-for="item in manageItems"
@@ -257,8 +263,8 @@ function toggleManage() {
                 @click="emit('update:activeNav', item.key)"
               >
                 <el-icon :size="18"><component :is="item.icon" /></el-icon>
-                <span v-if="!collapsed">{{ item.label }}</span>
-                <span v-if="!collapsed && activeNav === item.key" class="nav-dot" aria-hidden="true" />
+                <span>{{ item.label }}</span>
+                <span v-if="activeNav === item.key" class="nav-dot" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -291,12 +297,12 @@ function toggleManage() {
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  transition: width 0.32s var(--ds-ease);
+  transition: width 0.2s var(--ds-ease);
   flex-shrink: 0;
   overflow: hidden;
   z-index: 2;
   isolation: isolate;
-  contain: layout style;
+  contain: layout style paint;
 }
 .sidebar-bg {
   position: absolute;
@@ -517,10 +523,6 @@ function toggleManage() {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
-.conv-li {
-  animation: fade-rise 0.32s var(--ds-ease) both;
-  animation-delay: calc(min(var(--i), 8) * 28ms);
-}
 .conv {
   display: flex;
   align-items: flex-start;
@@ -606,11 +608,24 @@ function toggleManage() {
   font-size: 12px;
   opacity: 0.75;
 }
-.collapsed-hint {
+.collapsed-rail {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.collapsed-rail .nav-item {
+  width: 44px;
   justify-content: center;
-  padding: 8px 0;
-  opacity: 0.7;
+  padding-inline: 0;
+}
+.collapsed-rail .nav-item:hover {
+  transform: none;
 }
 
 .sidebar-dock {
@@ -812,10 +827,10 @@ function toggleManage() {
   .orb,
   .shine,
   .nav-dot,
-  .conv-li,
   .brand-text {
     animation: none !important;
   }
+  .sidebar,
   .accordion {
     transition: none;
   }

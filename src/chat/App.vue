@@ -31,6 +31,10 @@ import { isOrchestratorDownError, isSessionExpiredError } from './bootstrap-erro
 import { backToOa, requestOaRelaunch } from './oa-relay'
 import AppLayout from './components/AppLayout.vue'
 import { canSendMessage } from './components/files-from-clipboard'
+import {
+  findReusableEmptyConversation,
+  isConfirmedEmptyConversation,
+} from './empty-conversation'
 import type {
   AgentTask,
   ChatMessage,
@@ -582,8 +586,44 @@ function stop() {
   mockAdapter.stop()
 }
 
+/** 静默清理已确认空白对话，防止堆积空会话。 */
+async function discardEmptyConversation(id: string) {
+  if (!id || id === activeConversationId.value) return
+  const c = conversations.value.find((x) => x.id === id)
+  if (!isConfirmedEmptyConversation(c)) return
+  try {
+    await deleteThread(id)
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    if (status === 401) {
+      expire()
+      return
+    }
+    // 清理失败不打断主流程；下次再点新对话仍会复用/重试
+    return
+  }
+  conversations.value = conversations.value.filter((x) => x.id !== id)
+}
+
 async function newChat() {
   if (sending.value) return
+
+  const reusable = findReusableEmptyConversation(conversations.value, activeConversationId.value)
+  if (reusable) {
+    viewGen += 1
+    loadingMessages.value = false
+    input.value = ''
+    currentTask.value = null
+    mockAdapter.dispose()
+    activeNav.value = 'conversations'
+    if (reusable.id === activeConversationId.value) {
+      threadId.value = reusable.id
+      return
+    }
+    await selectConversation(reusable.id)
+    return
+  }
+
   viewGen += 1
   loadingMessages.value = false
   try {
@@ -634,6 +674,9 @@ async function selectConversation(id: string) {
     return
   }
   await messagesP
+  if (gen !== viewGen) return
+  // 离开空白新对话时自动删除，避免空会话堆积
+  void discardEmptyConversation(previousId)
 }
 
 async function renameConversation(id: string, title: string) {
