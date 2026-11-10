@@ -1,0 +1,36 @@
+---
+description: Split remotes — cloud pushes GitHub, local pushes GitLab
+alwaysApply: true
+---
+
+# Split remote push (GitHub cloud / GitLab local)
+
+Keep GitHub and GitLab in sync with a split responsibility:
+
+- **Cloud Agent**：只推 `origin`（GitHub）  
+  `https://github.com/puyuheng-git/oa-agent-chat`
+- **本机**（如 `E:\python_project\oa-agent`）：负责推 GitLab  
+  `ssh://git@gitlab.dev.xkmking.com:2222/frontend/oa-agent.git`
+
+## Cloud Agent
+
+```bash
+git push -u origin <branch-name>
+```
+
+不要在云端推 GitLab（无本机 SSH 私钥）。`origin` 不应配置 GitLab `pushurl`。
+
+## 本机同步到 GitLab
+
+从 GitHub 拉最新后再推 GitLab，例如：
+
+```bash
+git fetch origin
+git checkout <branch-name>
+git pull --ff-only origin <branch-name>
+git push gitlab <branch-name>
+# 或本机 origin 已指向 GitLab 时：
+git push origin <branch-name>
+```
+
+合并进 `main` 后，本机同样把对应提交推到 GitLab `main`，保证两边提交一致。
