@@ -7,6 +7,7 @@ import { errorMessage } from '../../shared/http'
 import type { ArtifactFile, ChatMessage } from '../types'
 import DeliveryResultCard from './DeliveryResultCard.vue'
 import DocumentPreviewDrawer from './DocumentPreviewDrawer.vue'
+import ThinkingBlock from './ThinkingBlock.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const emit = defineEmits<{ regenerate: [] }>()
@@ -16,6 +17,17 @@ const isWaiting = computed(() => props.message.reply?.type === 'pending')
 const showData = ref(false)
 const previewOpen = ref(false)
 const previewFile = ref<ArtifactFile | null>(null)
+const showThinking = computed(
+  () =>
+    !!props.message.thinkingActive ||
+    !!(props.message.thinking && props.message.thinking.length > 0),
+)
+/** 思考进行中且尚无正文时只展示思考块，避免空气泡抢视觉。 */
+const showAnswer = computed(() => {
+  const t = textLines(props.message)
+  if (props.message.thinkingActive && !t) return false
+  return true
+})
 
 function textLines(m: ChatMessage): string {
   // 流式与终态统一剥 HTML，避免回复过程中露出标签、完成后才变纯文字
@@ -63,8 +75,18 @@ async function onDownload(file: ArtifactFile) {
     <div class="avatar" aria-hidden="true">AI</div>
     <div class="body">
       <div :class="['content', { error: isError, waiting: isWaiting }]">
-        <div class="text">
-          {{ textLines(message) }}<span v-if="message.streaming" class="cursor">▍</span>
+        <ThinkingBlock
+          v-if="showThinking"
+          :content="message.thinking || ''"
+          :active="!!message.thinkingActive"
+          :streaming="!!message.streaming"
+        />
+
+        <div v-if="showAnswer" class="text">
+          {{ textLines(message) }}<span
+            v-if="message.streaming && !message.thinkingActive"
+            class="cursor"
+          >▍</span>
         </div>
 
         <DeliveryResultCard

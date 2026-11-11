@@ -28,12 +28,24 @@ async function scrollToBottom(smooth = true) {
 }
 
 watch(
-  () =>
-    [props.messages.length, props.messages[props.messages.length - 1]?.id, props.messages[props.messages.length - 1]?.text, props.sending] as const,
+  () => {
+    const last = props.messages[props.messages.length - 1]
+    return [
+      props.messages.length,
+      last?.id,
+      last?.text,
+      last?.thinking,
+      last?.thinkingActive,
+      props.sending,
+    ] as const
+  },
   (next, prev) => {
     const appended = !!prev && next[0] === prev[0] + 1
-    const streamed = !!prev && next[1] === prev[1] && next[2] !== prev[2]
-    void scrollToBottom(appended || streamed || next[3])
+    const streamed =
+      !!prev &&
+      next[1] === prev[1] &&
+      (next[2] !== prev[2] || next[3] !== prev[3] || next[4] !== prev[4])
+    void scrollToBottom(appended || streamed || next[5])
   },
 )
 

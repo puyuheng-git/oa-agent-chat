@@ -41,6 +41,10 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
+  /** 模型 `<think>` 思考过程正文（不含标签） */
+  thinking?: string
+  /** 流式中思考段尚未闭合 */
+  thinkingActive?: boolean
   reply?: Reply
   runId?: string
   streaming?: boolean

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  cellText, clearMemory, clearTicket, deleteMemory, formatRelativeTime, hasTicket, listMemory,
-  mapThreadMessages, memoryKindLabel, openSession, parseSse, plainText,
-  pollSettings, refreshDelayMs, sendMessage, sendMessageStream, StreamAbortedError, takeLaunchCode,
-  threadDisplayTitle, welcomeExamples, getThreadMessages,
+  assistantDisplayFields, cellText, clearMemory, clearTicket, deleteMemory, formatRelativeTime,
+  hasTicket, listMemory, mapThreadMessages, memoryKindLabel, openSession, parseSse, plainText,
+  pollSettings, refreshDelayMs, sendMessage, sendMessageStream, splitModelContent,
+  StreamAbortedError, takeLaunchCode, threadDisplayTitle, welcomeExamples, getThreadMessages,
 } from './api'
 
 describe('streaming', () => {
@@ -98,6 +98,54 @@ describe('chat api', () => {
     expect(plainText('共有 **3** 张<script>alert(1)</script>')).toBe('共有 3 张alert(1)')
     expect(plainText('你好<p>世界</p>')).toBe('你好世界')
     expect(plainText('流式中未闭合<div')).toBe('流式中未闭合')
+  })
+
+  it('splitModelContent 分离思考过程与最终回答，并支持流式未闭合', () => {
+    expect(splitModelContent('直接回答')).toEqual({
+      thinking: '',
+      answer: '直接回答',
+      hasThinking: false,
+      thinkingActive: false,
+    })
+    expect(splitModelContent('<think>先分析需求')).toEqual({
+      thinking: '先分析需求',
+      answer: '',
+      hasThinking: true,
+      thinkingActive: true,
+    })
+    expect(splitModelContent('<think>先分析</think>\n最终答复')).toEqual({
+      thinking: '先分析',
+      answer: '最终答复',
+      hasThinking: true,
+      thinkingActive: false,
+    })
+    expect(splitModelContent('前言<think>中段</think>后文')).toEqual({
+      thinking: '中段',
+      answer: '前言\n\n后文',
+      hasThinking: true,
+      thinkingActive: false,
+    })
+    // 流式尾部残缺标签不进入正文
+    expect(splitModelContent('答案<thi').answer).toBe('答案')
+    expect(assistantDisplayFields('<think>推理中</think>你好').text).toBe('你好')
+    expect(assistantDisplayFields('<think>推理中</think>你好').thinking).toBe('推理中')
+    expect(assistantDisplayFields('<think>推理中</think>你好').thinkingActive).toBe(false)
+  })
+
+  it('历史消息映射保留思考过程', () => {
+    const mapped = mapThreadMessages([
+      {
+        message_id: 'a1',
+        role: 'assistant',
+        content: '<think>内部推理</think>对外答复',
+        reply_type: 'text',
+        data: null,
+        created_at: '2026-01-01T00:00:00Z',
+        run_id: null,
+      },
+    ])
+    expect(mapped[0].text).toBe('对外答复')
+    expect(mapped[0].thinking).toBe('内部推理')
   })
 
   it('欢迎页示例只取近三天新加的 Skill/Tool，并按 Skill 轮流取', () => {

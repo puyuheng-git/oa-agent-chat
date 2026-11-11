@@ -13,7 +13,7 @@ import {
   mapThreadMessages,
   openSession,
   patchThread,
-  plainText,
+  assistantDisplayFields,
   pollSettings,
   sendMessageStream,
   StreamAbortedError,
@@ -392,7 +392,7 @@ function pollRun(msg: ChatMessage, startedAt = Date.now()) {
       const r = await getRun(msg.runId!)
       if (r.done && r.reply) {
         msg.reply = r.reply
-        msg.text = plainText(r.reply.content)
+        Object.assign(msg, assistantDisplayFields(r.reply.content), { thinkingActive: false })
         msg.delivery = buildDelivery(r.reply, currentTask.value) ?? undefined
         mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
         rememberExport(r.reply)
@@ -486,10 +486,10 @@ async function send(text?: string) {
             })
           }
           streamRaw += piece
-          const shown = plainText(streamRaw)
+          const display = assistantDisplayFields(streamRaw)
           patchMessages((list) => {
             const m = list.find((x) => x.id === liveId)
-            if (m) m.text = shown
+            if (m) Object.assign(m, display)
           })
         },
         signal,
@@ -509,10 +509,13 @@ async function send(text?: string) {
         attachments: atts.length ? atts : undefined,
       }
       const delivery = buildDelivery(r.reply, currentTask.value)
+      const finalDisplay = assistantDisplayFields(r.reply.content)
       const done: ChatMessage = {
         id: liveId ?? uid('msg'),
         role: 'assistant',
-        text: plainText(r.reply.content),
+        text: finalDisplay.text,
+        thinking: finalDisplay.thinking,
+        thinkingActive: false,
         reply: r.reply,
         runId: r.run_id,
         streaming: false,
@@ -544,7 +547,8 @@ async function send(text?: string) {
             const m = list.find((x) => x.id === liveId)
             if (m) {
               m.streaming = false
-              if (!m.text) m.text = '已停止生成'
+              m.thinkingActive = false
+              if (!m.text && !m.thinking) m.text = '已停止生成'
               m.reply = { type: 'text', content: m.text, data: null }
             }
           }

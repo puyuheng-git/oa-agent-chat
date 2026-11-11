@@ -116,9 +116,20 @@ export interface MappedChatMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
+  /** 模型 `<think>` 思考过程（已剥标签） */
+  thinking?: string
   reply?: Reply
   runId?: string
   createdAt: number
+}
+
+/** 从模型原文分离思考段与最终回答（支持流式未闭合）。 */
+export interface SplitModelContent {
+  thinking: string
+  answer: string
+  hasThinking: boolean
+  /** 已见到开标签、尚未见到闭标签 */
+  thinkingActive: boolean
 }
 
 // ticket 只放内存：刷新页面即失效，需要从 OA 重新进入
@@ -308,11 +319,22 @@ function threadMessageToReply(m: ThreadMessageItem): Reply {
 export function mapThreadMessages(items: ThreadMessageItem[]): MappedChatMessage[] {
   return items.map((m) => {
     const reply = m.role === 'assistant' ? threadMessageToReply(m) : undefined
-    const text = m.role === 'user' ? m.content : plainText(reply?.content ?? m.content)
+    if (m.role === 'user') {
+      return {
+        id: m.message_id,
+        role: m.role,
+        text: m.content,
+        reply,
+        runId: m.run_id ?? undefined,
+        createdAt: Date.parse(m.created_at) || Date.now(),
+      }
+    }
+    const parts = splitModelContent(reply?.content ?? m.content)
     return {
       id: m.message_id,
       role: m.role,
-      text,
+      text: parts.answer,
+      thinking: parts.hasThinking ? parts.thinking : undefined,
       reply,
       runId: m.run_id ?? undefined,
       createdAt: Date.parse(m.created_at) || Date.now(),
@@ -525,4 +547,70 @@ export function plainText(content: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&amp;/gi, '&')
     .replace(/\*\*/g, '')
+}
+
+const THINK_OPEN_RE = /<think\b[^>]*>/i
+const THINK_CLOSE_RE = /<\/think\s*>/i
+
+/**
+ * 分离模型 `<think>…</think>` 思考过程与最终回答。
+ * 流式场景下开标签未闭合时 thinkingActive=true；尾部残缺 `<…` 不进入展示。
+ */
+export function splitModelContent(raw: string): SplitModelContent {
+  const source = raw ?? ''
+  const open = THINK_OPEN_RE.exec(source)
+  if (!open || open.index === undefined) {
+    return {
+      thinking: '',
+      answer: plainText(source),
+      hasThinking: false,
+      thinkingActive: false,
+    }
+  }
+
+  const before = source.slice(0, open.index)
+  const afterOpen = source.slice(open.index + open[0].length)
+  const close = THINK_CLOSE_RE.exec(afterOpen)
+
+  if (!close || close.index === undefined) {
+    return {
+      thinking: plainText(afterOpen).trim(),
+      answer: plainText(before).trim(),
+      hasThinking: true,
+      thinkingActive: true,
+    }
+  }
+
+  const thinkingRaw = afterOpen.slice(0, close.index)
+  const afterClose = afterOpen.slice(close.index + close[0].length)
+  // 若后续还有思考块，递归合并（少见，但避免泄漏标签到回答区）
+  const rest = splitModelContent(afterClose)
+  const thinkingParts = [plainText(thinkingRaw).trim()]
+  if (rest.hasThinking && rest.thinking) thinkingParts.push(rest.thinking)
+
+  const answer = [plainText(before), rest.answer]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('\n\n')
+
+  return {
+    thinking: thinkingParts.filter(Boolean).join('\n\n'),
+    answer,
+    hasThinking: true,
+    thinkingActive: rest.thinkingActive,
+  }
+}
+
+/** 将模型原文落到消息展示字段（回答 + 可选思考）。 */
+export function assistantDisplayFields(raw: string): {
+  text: string
+  thinking?: string
+  thinkingActive?: boolean
+} {
+  const parts = splitModelContent(raw)
+  return {
+    text: parts.answer,
+    thinking: parts.hasThinking ? parts.thinking : undefined,
+    thinkingActive: parts.hasThinking ? parts.thinkingActive : undefined,
+  }
 }
