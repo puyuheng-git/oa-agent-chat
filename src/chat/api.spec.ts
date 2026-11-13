@@ -205,6 +205,28 @@ describe('chat api', () => {
     expect(mapped[1].reply?.type).toBe('markdown')
   })
 
+  it('历史用户消息含附件时拆成独立附件消息', () => {
+    const mapped = mapThreadMessages([
+      {
+        message_id: 'u1',
+        role: 'user',
+        content: '请看这个表',
+        reply_type: null,
+        data: {
+          attachments: [{ file_id: 'f1', filename: 'a.csv', size_bytes: 12, media_kind: 'csv' }],
+        },
+        attachments: [{ file_id: 'f1', filename: 'a.csv', size_bytes: 12, media_kind: 'csv' }],
+        created_at: '2026-01-01T00:00:00Z',
+        run_id: 'run_x',
+      },
+    ])
+    expect(mapped).toHaveLength(2)
+    expect(mapped[0].attachments?.[0]).toMatchObject({ id: 'f1', name: 'a.csv', size: 12 })
+    expect(mapped[0].text).toBe('')
+    expect(mapped[1].text).toBe('请看这个表')
+    expect(mapped[1].attachments).toBeUndefined()
+  })
+
   it('记忆 API 映射与 Bearer 鉴权', async () => {
     const fn = mockFetch([
       { ticket: 't-mem', expires_in: 1800, display_name: '李四', thread_id: 'thr_1' },

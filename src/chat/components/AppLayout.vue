@@ -2,6 +2,7 @@
 import AppHeader from './AppHeader.vue'
 import ConversationSidebar from './ConversationSidebar.vue'
 import ChatPanel from './ChatPanel.vue'
+import DocumentsPanel from './DocumentsPanel.vue'
 import TaskInspector from './TaskInspector.vue'
 import MemoryPanel from './MemoryPanel.vue'
 import type {
@@ -86,37 +87,40 @@ const emit = defineEmits<{
         @open-memory="emit('open-memory')"
       />
       <div class="workspace">
-        <ChatPanel
-          :messages="messages"
-          :sending="sending"
-          :history-loading="historyLoading"
-          :list-key="activeConversationId"
-          :display-name="displayName"
-          :examples="examples"
-          :skill-names="skillNames"
-          :chat-enabled="chatEnabled"
-          :input="input"
-          :max-chars="maxChars"
-          :attachments="attachments"
-          :placeholder="placeholder"
-          @update:input="emit('update:input', $event)"
-          @update:attachments="emit('update:attachments', $event)"
-          @send="emit('send')"
-          @stop="emit('stop')"
-          @example="emit('example', $event)"
-          @regenerate="emit('regenerate', $event)"
-          @open-tools="emit('open-tools')"
-        />
-        <TaskInspector
-          v-if="inspectorOpen"
-          class="desktop-inspector"
-          :task="task"
-          :thread-id="threadId"
-          :open="inspectorOpen"
-          @update:open="emit('update:inspectorOpen', $event)"
-          @approve="emit('approve', $event)"
-          @reject="emit('reject', $event)"
-        />
+        <DocumentsPanel v-if="activeNav === 'documents'" :active="activeNav === 'documents'" />
+        <template v-else>
+          <ChatPanel
+            :messages="messages"
+            :sending="sending"
+            :history-loading="historyLoading"
+            :list-key="activeConversationId"
+            :display-name="displayName"
+            :examples="examples"
+            :skill-names="skillNames"
+            :chat-enabled="chatEnabled"
+            :input="input"
+            :max-chars="maxChars"
+            :attachments="attachments"
+            :placeholder="placeholder"
+            @update:input="emit('update:input', $event)"
+            @update:attachments="emit('update:attachments', $event)"
+            @send="emit('send')"
+            @stop="emit('stop')"
+            @example="emit('example', $event)"
+            @regenerate="emit('regenerate', $event)"
+            @open-tools="emit('open-tools')"
+          />
+          <TaskInspector
+            v-if="inspectorOpen"
+            class="desktop-inspector"
+            :task="task"
+            :thread-id="threadId"
+            :open="inspectorOpen"
+            @update:open="emit('update:inspectorOpen', $event)"
+            @approve="emit('approve', $event)"
+            @reject="emit('reject', $event)"
+          />
+        </template>
       </div>
     </div>
 

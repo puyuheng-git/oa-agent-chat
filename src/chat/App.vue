@@ -470,21 +470,49 @@ async function send(text?: string) {
     }
     if (isUploadCancel(signal)) return
 
-    mockAdapter.syncLiveStatus('running', message.slice(0, 28))
+    const atts = pending.map((a, i) => ({
+      id: attachmentIds[i] || a.id,
+      name: a.name,
+      size: a.size,
+      mime: a.mime,
+    }))
+    const now = Date.now()
+    const liveId = uid('msg')
+    clearSentDraft(pending)
+    patchMessages((list) => {
+      if (atts.length) {
+        list.push({
+          id: uid('msg'),
+          role: 'user',
+          text: '',
+          createdAt: now,
+          attachments: atts,
+        })
+      }
+      if (message) {
+        list.push({
+          id: uid('msg'),
+          role: 'user',
+          text: message,
+          createdAt: now + (atts.length ? 1 : 0),
+        })
+      }
+      list.push({
+        id: liveId,
+        role: 'assistant',
+        text: '',
+        streaming: true,
+        createdAt: now + 2,
+      })
+    })
 
-    let liveId: string | null = null
+    mockAdapter.syncLiveStatus('running', message.slice(0, 28) || (atts[0]?.name ?? '附件'))
+
     let streamRaw = ''
     try {
       const r = await sendMessageStream(
         message,
         (piece) => {
-          if (!liveId) {
-            liveId = uid('msg')
-            streamRaw = ''
-            patchMessages((list) => {
-              list.push({ id: liveId!, role: 'assistant', text: '', streaming: true, createdAt: Date.now() })
-            })
-          }
           streamRaw += piece
           const display = assistantDisplayFields(streamRaw)
           patchMessages((list) => {
@@ -495,62 +523,38 @@ async function send(text?: string) {
         signal,
         attachmentIds,
       )
-      const atts = pending.map((a, i) => ({
-        id: attachmentIds[i] || a.id,
-        name: a.name,
-        size: a.size,
-        mime: a.mime,
-      }))
-      const userMsg: ChatMessage = {
-        id: uid('msg'),
-        role: 'user',
-        text: message,
-        createdAt: Date.now(),
-        attachments: atts.length ? atts : undefined,
-      }
       const delivery = buildDelivery(r.reply, currentTask.value)
       const finalDisplay = assistantDisplayFields(r.reply.content)
-      const done: ChatMessage = {
-        id: liveId ?? uid('msg'),
-        role: 'assistant',
-        text: finalDisplay.text,
-        thinking: finalDisplay.thinking,
-        thinkingActive: false,
-        reply: r.reply,
-        runId: r.run_id,
-        streaming: false,
-        createdAt: Date.now(),
-        delivery: delivery ?? undefined,
-      }
+      const streamDisplay = assistantDisplayFields(streamRaw)
       patchMessages((list) => {
-        const idx = liveId ? list.findIndex((item) => item.id === liveId) : -1
-        if (idx >= 0) list.splice(idx, 0, userMsg)
-        else list.push(userMsg)
-        if (liveId) {
-          const m = list.find((item) => item.id === liveId)
-          if (m) Object.assign(m, done)
-          else list.push(done)
-        } else list.push(done)
+        const m = list.find((item) => item.id === liveId)
+        if (!m) return
+        Object.assign(m, {
+          text: finalDisplay.text || streamDisplay.text,
+          thinking: finalDisplay.thinking ?? streamDisplay.thinking,
+          thinkingActive: false,
+          reply: r.reply,
+          runId: r.run_id,
+          streaming: false,
+          delivery: delivery ?? undefined,
+        })
       })
-      clearSentDraft(pending)
       mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
       rememberExport(r.reply)
       if (r.reply.type === 'pending') {
-        const last = messages.value[messages.value.length - 1]
+        const last = messages.value.find((item) => item.id === liveId)
         if (last) pollRun(last)
       }
       void loadThreads()
     } catch (e) {
       if (e instanceof StreamAbortedError) {
         patchMessages((list) => {
-          if (liveId) {
-            const m = list.find((x) => x.id === liveId)
-            if (m) {
-              m.streaming = false
-              m.thinkingActive = false
-              if (!m.text && !m.thinking) m.text = '已停止生成'
-              m.reply = { type: 'text', content: m.text, data: null }
-            }
+          const m = list.find((x) => x.id === liveId)
+          if (m) {
+            m.streaming = false
+            m.thinkingActive = false
+            if (!m.text && !m.thinking) m.text = '已停止生成'
+            m.reply = { type: 'text', content: m.text, data: null }
           }
         })
         mockAdapter.stop()
@@ -561,20 +565,16 @@ async function send(text?: string) {
         expire()
         return
       }
-      const failed: ChatMessage = {
-        id: liveId ?? uid('msg'),
-        role: 'assistant',
-        text: errorMessage(e),
-        reply: { type: 'error', content: errorMessage(e), data: null },
-        streaming: false,
-        createdAt: Date.now(),
-      }
       patchMessages((list) => {
-        if (liveId) {
-          const m = list.find((x) => x.id === liveId)
-          if (m) Object.assign(m, failed)
-          else list.push(failed)
-        } else list.push(failed)
+        const m = list.find((x) => x.id === liveId)
+        if (m) {
+          Object.assign(m, {
+            text: errorMessage(e),
+            reply: { type: 'error', content: errorMessage(e), data: null },
+            streaming: false,
+            thinkingActive: false,
+          })
+        }
       })
       mockAdapter.syncLiveStatus('failed')
     }
@@ -744,7 +744,9 @@ function onNav(key: NavKey) {
   } else if (key === 'approvals') {
     inspectorOpen.value = true
     ElMessage.info(currentTask.value?.approvals.length ? '请在右侧处理待审批事项' : '暂无待审批事项')
-  } else if (key !== 'conversations') {
+  } else if (key === 'documents' || key === 'conversations') {
+    // documents / conversations 已有完整面板
+  } else {
     ElMessage.info('该模块接口尚未接入，当前为导航占位')
   }
 }
@@ -775,8 +777,13 @@ function onOpenTools() {
 function onRegenerate(msg: ChatMessage) {
   const idx = messages.value.findIndex((m) => m.id === msg.id)
   if (idx <= 0) return
-  const prev = messages.value[idx - 1]
-  if (prev?.role === 'user') send(prev.text)
+  for (let i = idx - 1; i >= 0; i--) {
+    const prev = messages.value[i]
+    if (prev?.role === 'user' && prev.text.trim()) {
+      send(prev.text)
+      return
+    }
+  }
 }
 
 watch(activeNav, (k) => {

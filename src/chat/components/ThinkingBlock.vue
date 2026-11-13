@@ -9,33 +9,31 @@ const props = defineProps<{
   streaming?: boolean
 }>()
 
-/** 思考进行中强制展开；结束后默认折叠，用户可手动展开。 */
-const expanded = ref(!!props.active)
+/** 默认收起为单行；用户可展开多行。 */
+const expanded = ref(false)
 
 watch(
   () => props.active,
   (active, wasActive) => {
-    if (active) expanded.value = true
-    else if (wasActive) expanded.value = false
+    // 思考结束后保持单行收起，不自动展开
+    if (!active && wasActive) expanded.value = false
   },
 )
 
 const label = computed(() => (props.active ? '正在思考' : '思考过程'))
-const showBody = computed(() => expanded.value || !!props.active)
+const preview = computed(() => (props.content || '').replace(/\s+/g, ' ').trim())
 
 function toggle() {
-  if (props.active) return
   expanded.value = !expanded.value
 }
 </script>
 
 <template>
-  <div class="think" :class="{ active: active, open: showBody }">
+  <div class="think" :class="{ active: active, open: expanded }">
     <button
       type="button"
       class="think-head"
-      :aria-expanded="showBody"
-      :disabled="!!active"
+      :aria-expanded="expanded"
       @click="toggle"
     >
       <span class="think-pulse" aria-hidden="true">
@@ -44,12 +42,13 @@ function toggle() {
         <span class="dot" />
       </span>
       <span class="think-label">{{ label }}</span>
-      <el-icon v-if="!active" class="think-chevron" :class="{ open: expanded }">
+      <span v-if="!expanded && preview" class="think-preview">{{ preview }}</span>
+      <el-icon class="think-chevron" :class="{ open: expanded }">
         <ArrowRight />
       </el-icon>
     </button>
 
-    <div v-show="showBody" class="think-panel">
+    <div v-show="expanded" class="think-panel">
       <div class="think-body">
         {{ content }}<span v-if="active && streaming" class="cursor">▍</span>
       </div>
@@ -73,9 +72,10 @@ function toggle() {
   border-color: var(--ds-line);
 }
 .think-head {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   border: none;
   background: transparent;
   padding: 6px 10px;
@@ -86,14 +86,11 @@ function toggle() {
   font-size: 12px;
   line-height: 1.4;
   max-width: 100%;
+  text-align: left;
 }
-.think-head:hover:not(:disabled) {
+.think-head:hover {
   color: var(--ds-brand);
   background: var(--ds-brand-soft);
-}
-.think-head:disabled {
-  cursor: default;
-  color: var(--ds-brand);
 }
 .think-pulse {
   display: inline-flex;
@@ -133,11 +130,23 @@ function toggle() {
 .think-label {
   font-weight: 560;
   letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.think-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ds-body);
+  opacity: 0.85;
 }
 .think-chevron {
   font-size: 12px;
   transition: transform 0.18s var(--ds-ease);
   color: inherit;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .think-chevron.open {
   transform: rotate(90deg);

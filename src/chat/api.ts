@@ -85,12 +85,20 @@ export interface ThreadListResponse {
   total: number
 }
 
+export interface ThreadMessageAttachment {
+  file_id: string
+  filename: string
+  size_bytes: number
+  media_kind?: string | null
+}
+
 export interface ThreadMessageItem {
   message_id: string
   role: 'user' | 'assistant'
   content: string
   reply_type: string | null
   data: unknown
+  attachments?: ThreadMessageAttachment[] | null
   error_code?: string | null
   created_at: string
   run_id: string | null
@@ -121,6 +129,7 @@ export interface MappedChatMessage {
   reply?: Reply
   runId?: string
   createdAt: number
+  attachments?: { id: string; name: string; size: number; mime: string }[]
 }
 
 /** 从模型原文分离思考段与最终回答（支持流式未闭合）。 */
@@ -158,9 +167,8 @@ function auth(): Record<string, string> {
   return ticket ? { Authorization: `Bearer ${ticket}` } : {}
 }
 
-/** 用当前会话下载一次性导出文件。不能 window.open，否则带不上 Bearer。 */
-export async function downloadExportFile(exportTicket: string, filename: string): Promise<void> {
-  const resp = await fetch(apiUrl(`/v1/chat/exports/${encodeURIComponent(exportTicket)}`), { headers: auth() })
+async function downloadBlob(path: string, filename: string, fallbackName: string): Promise<void> {
+  const resp = await fetch(apiUrl(path), { headers: auth() })
   if (!resp.ok) {
     throw new ApiError(resp.status, 'DOWNLOAD_FAILED', '文件不存在或已过期')
   }
@@ -168,11 +176,54 @@ export async function downloadExportFile(exportTicket: string, filename: string)
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = filename || '导出.xlsx'
+  a.download = filename || fallbackName
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+}
+
+/** 用当前会话下载一次性导出文件。不能 window.open，否则带不上 Bearer。 */
+export async function downloadExportFile(exportTicket: string, filename: string): Promise<void> {
+  await downloadBlob(`/v1/chat/exports/${encodeURIComponent(exportTicket)}`, filename, '导出.xlsx')
+}
+
+/** 下载本人已发送的上传附件。 */
+export async function downloadOwnedFile(fileId: string, filename: string): Promise<void> {
+  await downloadBlob(`/v1/chat/files/${encodeURIComponent(fileId)}`, filename, '附件')
+}
+
+/** 文档中心下载（上传或导出，非一次性）。 */
+export async function downloadDocumentFile(fileId: string, filename: string): Promise<void> {
+  await downloadBlob(`/v1/chat/documents/${encodeURIComponent(fileId)}/download`, filename, '文件')
+}
+
+export interface ChatDocumentItem {
+  file_id: string
+  filename: string
+  size_bytes: number
+  origin: 'upload' | 'export' | string
+  media_kind?: string | null
+  thread_id?: string | null
+  created_at?: string | null
+  ticket?: string | null
+}
+
+export interface ChatDocumentsResponse {
+  items: ChatDocumentItem[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export function listDocuments(
+  page = 1,
+  pageSize = 50,
+  origin?: 'upload' | 'export',
+): Promise<ChatDocumentsResponse> {
+  const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (origin) q.set('origin', origin)
+  return request('GET', `/v1/chat/documents?${q}`, undefined, auth())
 }
 
 export async function openSession(launchCode: string): Promise<ChatSessionInfo> {
@@ -315,31 +366,65 @@ function threadMessageToReply(m: ThreadMessageItem): Reply {
   }
 }
 
-/** 将线程历史消息映射为对话区 Message 形状。 */
+function messageAttachments(m: ThreadMessageItem): MappedChatMessage['attachments'] {
+  const raw =
+    m.attachments ??
+    (m.data && typeof m.data === 'object' && m.data !== null && Array.isArray((m.data as { attachments?: unknown }).attachments)
+      ? ((m.data as { attachments: ThreadMessageAttachment[] }).attachments)
+      : null)
+  if (!raw?.length) return undefined
+  return raw
+    .filter((a) => a?.file_id)
+    .map((a) => ({
+      id: a.file_id,
+      name: a.filename || '附件',
+      size: Number(a.size_bytes) || 0,
+      mime: a.media_kind || '',
+    }))
+}
+
+/** 将线程历史消息映射为对话区 Message 形状；含附件时拆成独立附件消息。 */
 export function mapThreadMessages(items: ThreadMessageItem[]): MappedChatMessage[] {
-  return items.map((m) => {
-    const reply = m.role === 'assistant' ? threadMessageToReply(m) : undefined
+  const out: MappedChatMessage[] = []
+  for (const m of items) {
+    const createdAt = Date.parse(m.created_at) || Date.now()
     if (m.role === 'user') {
-      return {
-        id: m.message_id,
-        role: m.role,
-        text: m.content,
-        reply,
-        runId: m.run_id ?? undefined,
-        createdAt: Date.parse(m.created_at) || Date.now(),
+      const atts = messageAttachments(m)
+      const text = (m.content || '').trim()
+      if (atts?.length) {
+        out.push({
+          id: `${m.message_id}_att`,
+          role: 'user',
+          text: '',
+          createdAt,
+          attachments: atts,
+          runId: m.run_id ?? undefined,
+        })
       }
+      if (text || !atts?.length) {
+        out.push({
+          id: m.message_id,
+          role: 'user',
+          text: m.content || '',
+          runId: m.run_id ?? undefined,
+          createdAt: atts?.length ? createdAt + 1 : createdAt,
+        })
+      }
+      continue
     }
+    const reply = threadMessageToReply(m)
     const parts = splitModelContent(reply?.content ?? m.content)
-    return {
+    out.push({
       id: m.message_id,
       role: m.role,
       text: parts.answer,
       thinking: parts.hasThinking ? parts.thinking : undefined,
       reply,
       runId: m.run_id ?? undefined,
-      createdAt: Date.parse(m.created_at) || Date.now(),
-    }
-  })
+      createdAt,
+    })
+  }
+  return out
 }
 
 export interface SseEvent {
