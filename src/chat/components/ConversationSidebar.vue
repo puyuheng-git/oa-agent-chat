@@ -40,12 +40,12 @@ const emit = defineEmits<{
 const query = ref('')
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
-/** 分区展开状态独立于侧栏收起，避免「展开导航」时被强制全部打开 */
-const workspaceOpen = ref(false)
+/** 分区展开状态独立于侧栏收起，避免「展开导航」时被强制全部打开；工作空间默认展开以免登录后看不到入口 */
+const workspaceOpen = ref(true)
 const manageOpen = ref(true)
 
 const workspaceItems: { key: NavKey; label: string; icon: unknown }[] = [
-  { key: 'workspace', label: '工作空间', icon: OfficeBuilding },
+  { key: 'workspace', label: 'Skill管理', icon: OfficeBuilding },
   { key: 'tasks', label: 'AI 任务', icon: List },
   { key: 'documents', label: '文档中心', icon: Document },
   { key: 'knowledge', label: '企业知识库', icon: Collection },

@@ -715,3 +715,86 @@ export function assistantDisplayFields(raw: string): {
     thinkingActive: parts.hasThinking ? parts.thinkingActive : undefined,
   }
 }
+
+/** Agent Skill 包（SKILL.md，与目录 Skill 并行）。 */
+export interface SkillPackItem {
+  id: number
+  name: string
+  display_name: string
+  description: string
+  kind: string
+  source: string
+  source_url?: string
+  owner_oa?: string | null
+  enabled: boolean
+  origin: string
+  invoke_count: number
+  version_no: number
+  in_library?: boolean
+  listed?: boolean
+  installed?: boolean
+  publisher_oa?: string
+  market_description?: string
+  market_invoke_count?: number
+}
+
+export function listSkillPacks() {
+  return request<{ items: SkillPackItem[] }>('GET', '/v1/chat/skill-packs', undefined, auth())
+}
+
+export function createSkillPack(skill_md: string) {
+  return request<SkillPackItem>('POST', '/v1/chat/skill-packs', { skill_md }, auth())
+}
+
+export function updateSkillPack(packId: number, skill_md: string) {
+  return request<SkillPackItem>('PUT', `/v1/chat/skill-packs/${packId}`, { skill_md }, auth())
+}
+
+export function setSkillPackEnabled(packId: number, enabled: boolean) {
+  return request<{ id: number; enabled: boolean }>(
+    'PATCH',
+    `/v1/chat/skill-packs/${packId}/enabled`,
+    { enabled },
+    auth(),
+  )
+}
+
+export function deleteSkillPack(packId: number) {
+  return request<{ ok: boolean }>('DELETE', `/v1/chat/skill-packs/${packId}`, undefined, auth())
+}
+
+export function getSkillPackContent(packId: number) {
+  return request<{ id: number; skill_md: string }>(
+    'GET',
+    `/v1/chat/skill-packs/${packId}/content`,
+    undefined,
+    auth(),
+  )
+}
+
+export function publishSkillPack(packId: number, description = '') {
+  return request<{ pack_id: number; status: string; description: string }>(
+    'POST',
+    `/v1/chat/skill-packs/${packId}/publish`,
+    { description },
+    auth(),
+  )
+}
+
+export function withdrawSkillPack(packId: number) {
+  return request<{ ok: boolean }>('POST', `/v1/chat/skill-packs/${packId}/withdraw`, {}, auth())
+}
+
+export function listSkillMarket(q = '') {
+  const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''
+  return request<{ items: SkillPackItem[] }>('GET', `/v1/chat/skill-market${qs}`, undefined, auth())
+}
+
+export function installSkillMarket(packId: number) {
+  return request<{ pack_id: number; enabled: boolean; origin: string }>(
+    'POST',
+    `/v1/chat/skill-market/${packId}/install`,
+    {},
+    auth(),
+  )
+}

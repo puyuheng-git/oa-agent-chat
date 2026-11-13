@@ -757,8 +757,8 @@ function onNav(key: NavKey) {
   } else if (key === 'approvals') {
     inspectorOpen.value = true
     ElMessage.info(currentTask.value?.approvals.length ? '请在右侧处理待审批事项' : '暂无待审批事项')
-  } else if (key === 'documents' || key === 'conversations') {
-    // documents / conversations 已有完整面板
+  } else if (key === 'documents' || key === 'conversations' || key === 'workspace') {
+    // documents / conversations / 工作空间 已有完整面板
   } else {
     ElMessage.info('该模块接口尚未接入，当前为导航占位')
   }

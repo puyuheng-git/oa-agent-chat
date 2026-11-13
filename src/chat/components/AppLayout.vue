@@ -3,6 +3,7 @@ import AppHeader from './AppHeader.vue'
 import ConversationSidebar from './ConversationSidebar.vue'
 import ChatPanel from './ChatPanel.vue'
 import DocumentsPanel from './DocumentsPanel.vue'
+import SkillsPanel from './SkillsPanel.vue'
 import TaskInspector from './TaskInspector.vue'
 import MemoryPanel from './MemoryPanel.vue'
 import type {
@@ -88,6 +89,7 @@ const emit = defineEmits<{
       />
       <div class="workspace">
         <DocumentsPanel v-if="activeNav === 'documents'" :active="activeNav === 'documents'" />
+        <SkillsPanel v-else-if="activeNav === 'workspace'" :active="activeNav === 'workspace'" />
         <template v-else>
           <ChatPanel
             :messages="messages"
