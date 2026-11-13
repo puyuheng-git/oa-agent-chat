@@ -193,6 +193,22 @@ export async function downloadOwnedFile(fileId: string, filename: string): Promi
   await downloadBlob(`/v1/chat/files/${encodeURIComponent(fileId)}`, filename, '附件')
 }
 
+/** 读取本人上传文件为 Blob（用于对话内图片预览）。 */
+export async function fetchOwnedFileBlob(fileId: string): Promise<Blob> {
+  const resp = await fetch(apiUrl(`/v1/chat/files/${encodeURIComponent(fileId)}`), { headers: auth() })
+  if (!resp.ok) {
+    throw new ApiError(resp.status, 'DOWNLOAD_FAILED', '文件不存在或已过期')
+  }
+  return resp.blob()
+}
+
+export function isImageAttachment(a: { name?: string; mime?: string }): boolean {
+  const mime = (a.mime || '').toLowerCase()
+  if (mime.startsWith('image/') || mime === 'image') return true
+  const name = (a.name || '').toLowerCase()
+  return /\.(png|jpe?g|webp|gif)$/i.test(name)
+}
+
 /** 文档中心下载（上传或导出，非一次性）。 */
 export async function downloadDocumentFile(fileId: string, filename: string): Promise<void> {
   await downloadBlob(`/v1/chat/documents/${encodeURIComponent(fileId)}/download`, filename, '文件')

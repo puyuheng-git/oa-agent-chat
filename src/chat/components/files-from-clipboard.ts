@@ -2,7 +2,7 @@ import type { PendingAttachment } from '../types'
 
 const CLIP_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const ACCEPT_EXT = new Set([
-  'xlsx', 'xls', 'docx', 'pdf', 'md', 'markdown', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'gif',
+  'xlsx', 'xls', 'docx', 'pdf', 'md', 'markdown', 'txt', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'gif',
 ])
 const ACCEPT_MIME = new Set([
   ...CLIP_IMAGE_TYPES,
@@ -11,11 +11,12 @@ const ACCEPT_MIME = new Set([
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'text/csv',
+  'text/plain',
   'text/markdown',
 ])
 
-export const ACCEPT = '.xlsx,.xls,.docx,.pdf,.md,.markdown,.csv,.png,.jpg,.jpeg,.webp,.gif'
-export const TYPE_HINT = '只能上传 Excel、Word、PDF、Markdown、CSV，以及 png、jpeg、webp、gif 图片'
+export const ACCEPT = '.xlsx,.xls,.docx,.pdf,.md,.markdown,.txt,.csv,.png,.jpg,.jpeg,.webp,.gif'
+export const TYPE_HINT = '只能上传 Excel、Word、PDF、Markdown、TXT、CSV，以及 png、jpeg、webp、gif 图片'
 
 export function fileAllowed(file: File): boolean {
   const ext = file.name.includes('.') ? (file.name.split('.').pop() ?? '').toLowerCase() : ''

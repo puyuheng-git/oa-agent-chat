@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ArrowRight } from '@element-plus/icons-vue'
 
 const props = defineProps<{
@@ -11,21 +11,44 @@ const props = defineProps<{
 
 /** 默认收起为单行；用户可展开多行。 */
 const expanded = ref(false)
+const bodyEl = ref<HTMLElement | null>(null)
 
 watch(
   () => props.active,
   (active, wasActive) => {
-    // 思考结束后保持单行收起，不自动展开
     if (!active && wasActive) expanded.value = false
   },
 )
 
 const label = computed(() => (props.active ? '正在思考' : '思考过程'))
-const preview = computed(() => (props.content || '').replace(/\s+/g, ' ').trim())
+
+/** 未展开时展示最新一行（非空）。 */
+const preview = computed(() => {
+  const lines = (props.content || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return lines.length ? lines[lines.length - 1] : ''
+})
+
+async function scrollToLatest() {
+  await nextTick()
+  const el = bodyEl.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
 
 function toggle() {
   expanded.value = !expanded.value
+  if (expanded.value) void scrollToLatest()
 }
+
+watch(
+  () => [expanded.value, props.content] as const,
+  ([open]) => {
+    if (open) void scrollToLatest()
+  },
+)
 </script>
 
 <template>
@@ -49,7 +72,7 @@ function toggle() {
     </button>
 
     <div v-show="expanded" class="think-panel">
-      <div class="think-body">
+      <div ref="bodyEl" class="think-body">
         {{ content }}<span v-if="active && streaming" class="cursor">▍</span>
       </div>
     </div>

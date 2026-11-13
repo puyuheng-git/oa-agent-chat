@@ -9,12 +9,15 @@ export function postToOaParent(type: string, payload: Record<string, unknown> = 
   window.parent.postMessage({ type, ...payload }, '*')
 }
 
-/** embed 模式下请求 OA 宿主页重新签发 launch 并刷新 iframe；3 秒内未 ack 则 reject。 */
-export function requestOaRelaunch(timeoutMs = 3000): Promise<void> {
+let relaunchInFlight: Promise<void> | null = null
+
+/** embed 模式下请求 OA 宿主页重新签发 launch 并刷新 iframe；超时未 ack 则 reject。连点复用同一次请求。 */
+export function requestOaRelaunch(timeoutMs = 5000): Promise<void> {
   if (window.parent === window) {
     return Promise.reject(new Error('not_embedded'))
   }
-  return new Promise((resolve, reject) => {
+  if (relaunchInFlight) return relaunchInFlight
+  relaunchInFlight = new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener('message', onMessage)
       reject(new Error('relaunch_timeout'))
@@ -29,7 +32,10 @@ export function requestOaRelaunch(timeoutMs = 3000): Promise<void> {
     }
     window.addEventListener('message', onMessage)
     postToOaParent(OA_MSG_RELAUNCH)
+  }).finally(() => {
+    relaunchInFlight = null
   })
+  return relaunchInFlight
 }
 
 export function backToOa(): void {

@@ -151,25 +151,27 @@ function mergeThreadList(items: ChatThreadItem[]) {
   })
 }
 
+/** 进入时优先有标题的会话；空白「新会话」仅在没有历史时保留。 */
+function preferredConversationId(preferId?: string): string {
+  const list = conversations.value
+  if (!list.length) return preferId || ''
+  const withTitle = list.find((c) => (c.title ?? '').trim())
+  if (withTitle) {
+    const preferred = preferId && list.find((c) => c.id === preferId && (c.title ?? '').trim())
+    return preferred?.id || withTitle.id
+  }
+  if (preferId && list.some((c) => c.id === preferId)) return preferId
+  return list[0].id
+}
+
 async function loadThreads() {
   try {
     const res = await listThreads(1, 50)
     mergeThreadList(res.items)
+    // 服务端线程若不在列表（已删等），回落到列表首项，不要本地伪造空白会话
     if (threadId.value && !conversations.value.some((c) => c.id === threadId.value)) {
-      conversations.value = [
-        convFromThread({
-          thread_id: threadId.value,
-          title: null,
-          status: 'active',
-          created_channel: 'oa_web',
-          last_channel: null,
-          pinned: false,
-          created_at: '',
-          updated_at: '',
-          last_message_at: null,
-        }),
-        ...conversations.value,
-      ]
+      threadId.value = conversations.value[0]?.id || ''
+      activeConversationId.value = threadId.value
     }
   } catch (e) {
     ElMessage.error(errorMessage(e))
@@ -328,8 +330,19 @@ async function bootstrap(fromRetry = false) {
     examples.value = welcomeExamples(skills.value)
     activeConversationId.value = threadId.value
     await loadThreads()
-    ensureActiveThread()
-    await loadMessagesForThread(activeConversationId.value)
+    const preferred = preferredConversationId(threadId.value || activeConversationId.value)
+    if (preferred && preferred !== activeConversationId.value) {
+      try {
+        const sw = await switchThread(preferred)
+        threadId.value = sw.thread_id
+        activeConversationId.value = preferred
+      } catch {
+        ensureActiveThread()
+      }
+    } else {
+      ensureActiveThread()
+    }
+    if (activeConversationId.value) await loadMessagesForThread(activeConversationId.value)
     state.value = 'ready'
   } catch (e) {
     clearLoadTimers()
@@ -352,11 +365,12 @@ async function retryBootstrap() {
 }
 
 async function onRelaunch() {
+  if (relaunching.value) return
   relaunchFailed.value = false
   relaunching.value = true
   try {
     if (embedded) {
-      await requestOaRelaunch(3000)
+      await requestOaRelaunch(5000)
       return
     }
     window.location.reload()
@@ -425,9 +439,7 @@ function isUploadCancel(signal: AbortSignal, error?: unknown): boolean {
 function clearSentDraft(pending: PendingAttachment[]) {
   input.value = ''
   const sent = new Set(pending.map((item) => item.id))
-  for (const item of pending) {
-    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
-  }
+  // 图片 previewUrl 交给对话区消息继续展示，不在此处 revoke
   attachments.value = attachments.value.filter((item) => !sent.has(item.id))
 }
 
@@ -475,6 +487,7 @@ async function send(text?: string) {
       name: a.name,
       size: a.size,
       mime: a.mime,
+      previewUrl: a.previewUrl,
     }))
     const now = Date.now()
     const liveId = uid('msg')

@@ -353,7 +353,7 @@ describe('发送草稿在上传中止和流式失败时保留', () => {
     await chat.unmount()
   })
 
-  it('流式发送失败时保留正文和 File，不留下用户气泡', async () => {
+  it('流式发送失败时输入已清空，保留用户/附件气泡，并写入助手错误', async () => {
     const chat = await mountChat()
     const file = draftFile()
     vi.stubGlobal(
@@ -372,14 +372,16 @@ describe('发送草稿在上传中止和流式失败时保留', () => {
     chat.vm.input = '你好'
     chat.vm.attachments = [file]
     await chat.vm.send()
-    expect(chat.vm.input).toBe('你好')
-    expect(chat.vm.attachments[0]?.file).toBe(file.file)
-    expect(chat.vm.messages.filter((item) => item.role === 'user')).toEqual([])
+    expect(chat.vm.input).toBe('')
+    expect(chat.vm.attachments).toEqual([])
+    const users = chat.vm.messages.filter((item) => item.role === 'user')
+    expect(users.some((item) => item.attachments?.[0]?.id === 'upl_1')).toBe(true)
+    expect(users.some((item) => item.text === '你好')).toBe(true)
     expect(chat.vm.messages.some((item) => item.role === 'assistant' && item.text === '发送失败')).toBe(true)
     await chat.unmount()
   })
 
-  it('流式发送成功后才清空输入和本地附件，并写入用户气泡', async () => {
+  it('上传成功后立刻清空输入，附件与正文拆成独立用户气泡', async () => {
     const chat = await mountChat()
     const file = draftFile()
     vi.stubGlobal(
@@ -400,9 +402,11 @@ describe('发送草稿在上传中止和流式失败时保留', () => {
     expect(chat.vm.attachments).toEqual([])
     const roles = chat.vm.messages.map((item) => item.role)
     expect(roles[0]).toBe('user')
-    expect(chat.vm.messages[0]?.text).toBe('你好')
     expect(chat.vm.messages[0]?.attachments?.[0]?.id).toBe('upl_1')
-    expect(chat.vm.messages[0]?.attachments?.[0]?.file).toBeUndefined()
+    expect(chat.vm.messages[0]?.text).toBe('')
+    expect(chat.vm.messages[1]?.role).toBe('user')
+    expect(chat.vm.messages[1]?.text).toBe('你好')
+    expect(chat.vm.messages[1]?.attachments).toBeUndefined()
     await chat.unmount()
   })
 })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Document, Close } from '@element-plus/icons-vue'
 import type { PendingAttachment } from '../types'
+import { isImageAttachment } from '../api'
 
 defineProps<{ items: PendingAttachment[] }>()
 const emit = defineEmits<{ remove: [id: string] }>()
@@ -14,8 +15,9 @@ function sizeLabel(n: number) {
 
 <template>
   <ul v-if="items.length" class="list">
-    <li v-for="a in items" :key="a.id" class="item">
-      <el-icon class="ico"><Document /></el-icon>
+    <li v-for="a in items" :key="a.id" class="item" :class="{ image: isImageAttachment(a) && a.previewUrl }">
+      <img v-if="isImageAttachment(a) && a.previewUrl" :src="a.previewUrl" :alt="a.name" class="thumb" />
+      <el-icon v-else class="ico"><Document /></el-icon>
       <div class="meta">
         <span class="name" :title="a.name">{{ a.name }}</span>
         <span class="size">{{ sizeLabel(a.size) }} · 待发送（本地）</span>
@@ -46,6 +48,19 @@ function sizeLabel(n: number) {
   border: 1px solid var(--ds-line);
   border-radius: var(--ds-radius-sm);
 }
+.item.image {
+  max-width: 160px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 6px;
+}
+.thumb {
+  width: 100%;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #fff;
+}
 .ico {
   color: var(--ds-brand);
   flex-shrink: 0;
@@ -74,6 +89,18 @@ function sizeLabel(n: number) {
   cursor: pointer;
   padding: 2px;
   display: flex;
+  align-self: flex-start;
+}
+.item.image .rm {
+  position: absolute;
+  /* keep simple: stay in flex */
+  align-self: flex-end;
+  margin-top: -28px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 4px;
+}
+.item.image {
+  position: relative;
 }
 .rm:hover {
   color: var(--ds-danger);
