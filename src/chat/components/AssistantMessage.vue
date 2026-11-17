@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { CopyDocument, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { cellText, downloadExportFile, plainText } from '../api'
+import { renderMarkdown } from '../markdown'
 import { errorMessage } from '../../shared/http'
 import type { ArtifactFile, ChatMessage } from '../types'
 import DeliveryResultCard from './DeliveryResultCard.vue'
@@ -24,18 +25,23 @@ const showThinking = computed(
 )
 /** 思考进行中且尚无正文时只展示思考块，避免空气泡抢视觉。 */
 const showAnswer = computed(() => {
-  const t = textLines(props.message)
+  const t = answerSource(props.message)
   if (props.message.thinkingActive && !t) return false
   return true
 })
 
-function textLines(m: ChatMessage): string {
-  // 流式与终态统一剥 HTML，避免回复过程中露出标签、完成后才变纯文字
-  const raw = plainText(m.text)
+const answerHtml = computed(() => renderMarkdown(answerSource(props.message)))
+
+function answerSource(m: ChatMessage): string {
+  // 保留 Markdown；有结构化 data 时只去掉表格行，避免与下方表格重复（列表/引用仍展示）
+  const raw = m.text || ''
   if (!m.reply?.data) return raw
   return raw
     .split('\n')
-    .filter((l) => l.trim() && !['|', '- ', '>'].some((p) => l.trim().startsWith(p)))
+    .filter((l) => {
+      const t = l.trim()
+      return t && !t.startsWith('|')
+    })
     .join('\n')
 }
 
@@ -82,8 +88,8 @@ async function onDownload(file: ArtifactFile) {
           :streaming="!!message.streaming"
         />
 
-        <div v-if="showAnswer" class="text">
-          {{ textLines(message) }}<span
+        <div v-if="showAnswer" class="text md-body">
+          <div class="md" v-html="answerHtml" /><span
             v-if="message.streaming && !message.thinkingActive"
             class="cursor"
           >▍</span>
@@ -234,11 +240,91 @@ async function onDownload(file: ArtifactFile) {
   border: 1px solid #f9dbaf;
 }
 .text {
-  white-space: pre-wrap;
   word-break: break-word;
   font-size: 15px;
   line-height: 1.65;
   color: inherit;
+}
+.md-body {
+  display: block;
+}
+.md :deep(p) {
+  margin: 0 0 0.65em;
+}
+.md :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.md :deep(ul),
+.md :deep(ol) {
+  margin: 0.4em 0 0.65em;
+  padding-left: 1.4em;
+}
+.md :deep(li) {
+  margin: 0.25em 0;
+  line-height: 1.55;
+}
+.md :deep(li > ul),
+.md :deep(li > ol) {
+  margin: 0.15em 0 0.3em;
+}
+.md :deep(strong) {
+  font-weight: 650;
+}
+.md :deep(h1),
+.md :deep(h2),
+.md :deep(h3),
+.md :deep(h4) {
+  margin: 0.85em 0 0.4em;
+  font-size: 1.05em;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.md :deep(h1:first-child),
+.md :deep(h2:first-child),
+.md :deep(h3:first-child) {
+  margin-top: 0;
+}
+.md :deep(hr) {
+  margin: 0.85em 0;
+  border: none;
+  border-top: 1px solid var(--ds-line, #e5e7eb);
+}
+.md :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+}
+.md :deep(pre) {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #0f172a0a;
+  border: 1px solid var(--ds-line, #e5e7eb);
+}
+.md :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+.md :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  font-size: 13px;
+}
+.md :deep(th),
+.md :deep(td) {
+  border: 1px solid var(--ds-line, #e5e7eb);
+  padding: 6px 8px;
+  text-align: left;
+}
+.md :deep(blockquote) {
+  margin: 0.5em 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--ds-brand, #2563eb);
+  color: var(--ds-muted, #667085);
 }
 .cursor {
   color: var(--ds-brand);

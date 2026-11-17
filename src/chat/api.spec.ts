@@ -107,6 +107,12 @@ describe('chat api', () => {
       hasThinking: false,
       thinkingActive: false,
     })
+    expect(splitModelContent('共有 **3** 条')).toEqual({
+      thinking: '',
+      answer: '共有 **3** 条',
+      hasThinking: false,
+      thinkingActive: false,
+    })
     expect(splitModelContent('<think>先分析需求')).toEqual({
       thinking: '先分析需求',
       answer: '',
@@ -200,7 +206,7 @@ describe('chat api', () => {
       },
     ])
     expect(mapped[0].text).toBe('你好')
-    expect(mapped[1].text).toBe('OK')
+    expect(mapped[1].text).toBe('**OK**')
     expect(mapped[1].runId).toBe('run_1')
     expect(mapped[1].reply?.type).toBe('markdown')
   })

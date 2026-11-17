@@ -638,7 +638,7 @@ export function cellText(v: unknown): string {
   return typeof v === 'object' ? JSON.stringify(v) : String(v)
 }
 
-/** 回复正文按纯文本展示：去掉 HTML 与 Markdown 粗体，流式未闭合标签一并剥掉。 */
+/** 复制/思考区用：去掉 HTML 与 Markdown 粗体，流式未闭合标签一并剥掉。 */
 export function plainText(content: string): string {
   return content
     .replace(/<[^>]*>/g, '')
@@ -650,12 +650,24 @@ export function plainText(content: string): string {
     .replace(/\*\*/g, '')
 }
 
+/** 回答区用：去掉 HTML，保留 Markdown（**、表格等）供前端渲染。 */
+export function answerMarkdown(content: string): string {
+  return content
+    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]*$/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+}
+
 const THINK_OPEN_RE = /<think\b[^>]*>/i
 const THINK_CLOSE_RE = /<\/think\s*>/i
 
 /**
  * 分离模型 `<think>…</think>` 思考过程与最终回答。
  * 流式场景下开标签未闭合时 thinkingActive=true；尾部残缺 `<…` 不进入展示。
+ * 回答保留 Markdown；思考区仍用纯文本。
  */
 export function splitModelContent(raw: string): SplitModelContent {
   const source = raw ?? ''
@@ -663,7 +675,7 @@ export function splitModelContent(raw: string): SplitModelContent {
   if (!open || open.index === undefined) {
     return {
       thinking: '',
-      answer: plainText(source),
+      answer: answerMarkdown(source),
       hasThinking: false,
       thinkingActive: false,
     }
@@ -676,7 +688,7 @@ export function splitModelContent(raw: string): SplitModelContent {
   if (!close || close.index === undefined) {
     return {
       thinking: plainText(afterOpen).trim(),
-      answer: plainText(before).trim(),
+      answer: answerMarkdown(before).trim(),
       hasThinking: true,
       thinkingActive: true,
     }
@@ -689,7 +701,7 @@ export function splitModelContent(raw: string): SplitModelContent {
   const thinkingParts = [plainText(thinkingRaw).trim()]
   if (rest.hasThinking && rest.thinking) thinkingParts.push(rest.thinking)
 
-  const answer = [plainText(before), rest.answer]
+  const answer = [answerMarkdown(before), rest.answer]
     .map((s) => s.trim())
     .filter(Boolean)
     .join('\n\n')
@@ -736,6 +748,12 @@ export interface SkillPackItem {
   publisher_oa?: string
   market_description?: string
   market_invoke_count?: number
+  /** pending_admin | published | rejected | withdrawn */
+  market_status?: string
+  model_review_status?: string
+  model_review_summary?: string
+  model_review_recommend?: string
+  admin_note?: string
 }
 
 export function listSkillPacks() {
@@ -773,12 +791,14 @@ export function getSkillPackContent(packId: number) {
 }
 
 export function publishSkillPack(packId: number, description = '') {
-  return request<{ pack_id: number; status: string; description: string }>(
-    'POST',
-    `/v1/chat/skill-packs/${packId}/publish`,
-    { description },
-    auth(),
-  )
+  return request<{
+    pack_id: number
+    status: string
+    description: string
+    model_review_status?: string
+    model_review_summary?: string
+    model_review_recommend?: string
+  }>('POST', `/v1/chat/skill-packs/${packId}/publish`, { description }, auth())
 }
 
 export function withdrawSkillPack(packId: number) {

@@ -42,8 +42,12 @@ description: 说明这个 Skill 做什么、何时使用（含关键词）
 在此写给助手的步骤指引。
 `
 
-/** 系统包不在用户库展示（后端也会过滤；此处再防一层） */
-const mineSorted = computed(() => mine.value.filter((p) => p.kind !== 'system'))
+/** 我的库：系统包在前，其余按名称 */
+const mineSorted = computed(() =>
+  [...mine.value]
+    .filter((x) => x.kind !== 'system')
+    .sort((a, b) => a.name.localeCompare(b.name)),
+)
 
 async function loadMine() {
   loading.value = true
@@ -79,10 +83,6 @@ function openCreate() {
 }
 
 async function openEdit(row: SkillPackItem) {
-  if (row.kind === 'system' || row.origin === 'market_install') {
-    ElMessage.info('系统包与市场安装包不可编辑正文，可启停')
-    return
-  }
   try {
     const r = await getSkillPackContent(row.id)
     editingId.value = row.id
@@ -144,23 +144,38 @@ async function remove(row: SkillPackItem) {
 async function publish(row: SkillPackItem) {
   let description = row.description || ''
   try {
-    const r = await ElMessageBox.prompt('填写市场上展示的描述（对外说明）', `推到市场：${row.display_name}`, {
-      inputValue: description,
-      inputType: 'textarea',
-      inputValidator: (v: string) => (v && v.trim().length >= 2) || '请填写至少 2 个字的描述',
-      confirmButtonText: '发布',
-    })
+    const r = await ElMessageBox.prompt(
+      '填写市场上展示的描述。提交后将先由模型审查，再由管理员审核通过后才会上架。',
+      `推到市场：${row.display_name}`,
+      {
+        inputValue: description,
+        inputType: 'textarea',
+        inputValidator: (v: string) => (v && v.trim().length >= 2) || '请填写至少 2 个字的描述',
+        confirmButtonText: '提交审核',
+      },
+    )
     description = String(r.value || '').trim()
   } catch {
     return
   }
   try {
-    await publishSkillPack(row.id, description)
-    ElMessage.success('已推到 Skill 市场')
+    const res = await publishSkillPack(row.id, description)
+    const tip = res.model_review_summary
+      ? `已提交审核（模型建议：${res.model_review_recommend || res.model_review_status}）`
+      : '已提交审核，等待管理员通过后上架'
+    ElMessage.success(tip)
     await loadMine()
   } catch (e) {
     ElMessage.error(errorMessage(e))
   }
+}
+
+function marketStatusLabel(row: SkillPackItem) {
+  const s = row.market_status || ''
+  if (s === 'pending_admin') return '审核中'
+  if (s === 'published') return '已上架'
+  if (s === 'rejected') return '已驳回'
+  return s || ''
 }
 
 async function withdraw(row: SkillPackItem) {
@@ -257,22 +272,32 @@ onMounted(() => {
           <el-switch :model-value="row.enabled" @click="toggle(row)" />
         </template>
       </el-table-column>
+      <el-table-column v-if="tab === 'mine'" label="市场" width="120">
+        <template #default="{ row }">
+          <template v-if="row.origin === 'created' && row.listed">
+            <el-tag
+              size="small"
+              :type="row.market_status === 'published' ? 'success' : row.market_status === 'rejected' ? 'danger' : 'warning'"
+            >
+              {{ marketStatusLabel(row) }}
+            </el-tag>
+            <div v-if="row.market_status === 'rejected' && row.admin_note" class="muted">{{ row.admin_note }}</div>
+            <div v-else-if="row.model_review_summary" class="muted" :title="row.model_review_summary">
+              模型：{{ row.model_review_recommend || row.model_review_status }}
+            </div>
+          </template>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
       <el-table-column v-if="tab === 'market'" label="发布者" width="120">
         <template #default="{ row }">{{ row.publisher_oa || '—' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
           <template v-if="tab === 'mine'">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button
-              v-if="row.kind !== 'system' && row.origin !== 'market_install'"
-              link
-              type="primary"
-              @click="openEdit(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              v-if="row.kind === 'user' && row.origin === 'created' && !row.listed"
+              v-if="row.kind === 'user' && row.origin === 'created' && (!row.listed || row.market_status === 'rejected' || row.market_status === 'withdrawn')"
               link
               type="success"
               @click="publish(row)"
@@ -280,20 +305,13 @@ onMounted(() => {
               推到市场
             </el-button>
             <el-button
-              v-if="row.kind === 'user' && row.origin === 'created' && row.listed"
+              v-if="row.kind === 'user' && row.origin === 'created' && row.listed && row.market_status !== 'withdrawn'"
               link
               @click="withdraw(row)"
             >
-              下架
+              {{ row.market_status === 'pending_admin' ? '撤回' : '下架' }}
             </el-button>
-            <el-button
-              v-if="row.kind === 'user' && row.origin === 'created'"
-              link
-              type="danger"
-              @click="remove(row)"
-            >
-              删除
-            </el-button>
+            <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
           <template v-else>
             <el-tag v-if="row.installed" size="small" type="success">已添加</el-tag>
