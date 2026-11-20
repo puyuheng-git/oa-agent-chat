@@ -23,6 +23,7 @@ import {
   threadDisplayTitle,
   welcomeExamples,
   type ChatThreadItem,
+  type Reply,
   type SkillMenuItem,
 } from './api'
 import { MockAgentAdapter, mapRunStatus } from './agent/adapter'
@@ -799,6 +800,22 @@ function onRegenerate(msg: ChatMessage) {
   }
 }
 
+function onConfirmResolved(msg: ChatMessage, reply: Reply) {
+  const display = assistantDisplayFields(reply.content || '')
+  patchMessages((list) => {
+    const m = list.find((item) => item.id === msg.id)
+    if (!m) return
+    Object.assign(m, {
+      text: display.text || reply.content || m.text,
+      thinking: display.thinking,
+      thinkingActive: false,
+      reply,
+      delivery: buildDelivery(reply, currentTask.value) ?? undefined,
+    })
+  })
+  mockAdapter.syncLiveStatus('completed')
+}
+
 watch(activeNav, (k) => {
   if (k === 'conversations') ensureActiveThread()
 })
@@ -891,6 +908,7 @@ defineExpose({
       @stop="stop"
       @example="send"
       @regenerate="onRegenerate"
+      @confirm-resolved="onConfirmResolved"
       @open-tools="onOpenTools"
       @approve="onApprove"
       @reject="onReject"

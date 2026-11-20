@@ -6,6 +6,7 @@ import DocumentsPanel from './DocumentsPanel.vue'
 import SkillsPanel from './SkillsPanel.vue'
 import TaskInspector from './TaskInspector.vue'
 import MemoryPanel from './MemoryPanel.vue'
+import type { Reply } from '../api'
 import type {
   AgentTask,
   ChatMessage,
@@ -52,6 +53,7 @@ const emit = defineEmits<{
   stop: []
   example: [text: string]
   regenerate: [msg: ChatMessage]
+  confirmResolved: [msg: ChatMessage, reply: Reply]
   'open-tools': []
   approve: [id: string]
   reject: [id: string]
@@ -110,6 +112,7 @@ const emit = defineEmits<{
             @stop="emit('stop')"
             @example="emit('example', $event)"
             @regenerate="emit('regenerate', $event)"
+            @confirm-resolved="(msg, reply) => emit('confirmResolved', msg, reply)"
             @open-tools="emit('open-tools')"
           />
           <TaskInspector

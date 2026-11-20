@@ -1,44 +1,45 @@
-import type { Reply } from './api'
+import { primaryReplyBlock, replyDataBlocks, type Reply } from './api'
 import type { AgentTask, ArtifactFile, DeliverySummary } from './types'
 
 export function exportArtifact(reply: Reply | undefined): ArtifactFile | null {
-  const data = reply?.data
-  if (!data || data.kind !== 'file' || !data.ticket) return null
-  const size = data.size_bytes
+  const file = replyDataBlocks(reply?.data).find((b) => b.kind === 'file')
+  if (!file || file.kind !== 'file' || !file.ticket) return null
+  const size = file.size_bytes
   return {
-    id: data.ticket,
-    name: data.filename || '导出.xlsx',
-    kind: data.filename?.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'generic',
+    id: file.ticket,
+    name: file.filename || '导出.xlsx',
+    kind: file.filename?.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'generic',
     sizeLabel: typeof size === 'number' && size > 0 ? `${Math.max(1, Math.round(size / 1024))} KB` : 'Excel',
     status: 'ready',
     previewable: false,
-    exportTicket: data.ticket,
+    exportTicket: file.ticket,
     previewNote: '点下载保存到本机。链接只能用一次。',
   }
 }
 
 /** 从真实 Reply 结构化数据生成交付摘要；无数据时返回 null。 */
 export function deliveryFromReply(reply: Reply | undefined): DeliverySummary | null {
-  if (!reply?.data) return null
-  if (reply.data.kind === 'table') {
-    const n = reply.data.total ?? reply.data.items.length
+  const data = primaryReplyBlock(reply?.data)
+  if (!data) return null
+  if (data.kind === 'table') {
+    const n = data.total ?? data.items.length
     return {
-      title: reply.data.title || '查询结果已就绪',
+      title: data.title || '查询结果已就绪',
       highlights: [
         { label: '记录数', value: `已查询 ${n} 条` },
-        { label: '工具', value: reply.data.tool || '—' },
-        ...(reply.chain?.length ? [{ label: '调用链', value: reply.chain.join(' → ') }] : []),
+        { label: '工具', value: data.tool || '—' },
+        ...(reply?.chain?.length ? [{ label: '调用链', value: reply.chain.join(' → ') }] : []),
       ],
       mock: false,
       hasStructuredData: true,
     }
   }
-  if (reply.data.kind === 'file') {
+  if (data.kind === 'file') {
     const file = exportArtifact(reply)
     return {
-      title: reply.data.filename || '文件已生成',
+      title: data.filename || '文件已生成',
       highlights: [
-        { label: '文件', value: reply.data.filename || '导出.xlsx' },
+        { label: '文件', value: data.filename || '导出.xlsx' },
         { label: '格式', value: 'Excel' },
       ],
       mock: false,
@@ -46,12 +47,12 @@ export function deliveryFromReply(reply: Reply | undefined): DeliverySummary | n
       artifacts: file ? [file] : [],
     }
   }
-  if (reply.data.kind === 'record') {
+  if (data.kind === 'record') {
     return {
-      title: reply.data.title || '详情已就绪',
+      title: data.title || '详情已就绪',
       highlights: [
         { label: '结果', value: '已获取 1 条详情' },
-        { label: '工具', value: reply.data.tool || '—' },
+        { label: '工具', value: data.tool || '—' },
       ],
       mock: false,
       hasStructuredData: true,

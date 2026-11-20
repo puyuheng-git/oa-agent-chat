@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import UserMessage from './UserMessage.vue'
 import AssistantMessage from './AssistantMessage.vue'
 import WelcomeScreen from './WelcomeScreen.vue'
+import type { Reply } from '../api'
 import type { ChatMessage } from '../types'
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   example: [text: string]
   regenerate: [msg: ChatMessage]
+  confirmResolved: [msg: ChatMessage, reply: Reply]
 }>()
 
 const listEl = ref<HTMLElement | null>(null)
@@ -76,6 +78,7 @@ defineExpose({ scrollToBottom })
             v-else
             :message="m"
             @regenerate="emit('regenerate', m)"
+            @confirm-resolved="emit('confirmResolved', m, $event)"
           />
         </template>
 

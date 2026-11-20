@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assistantDisplayFields, cellText, clearMemory, clearTicket, deleteMemory, formatRelativeTime,
   hasTicket, listMemory, mapThreadMessages, memoryKindLabel, openSession, parseSse, plainText,
-  pollSettings, refreshDelayMs, sendMessage, sendMessageStream, splitModelContent,
+  pollSettings, refreshDelayMs, replyDataBlocks, sendMessage, sendMessageStream, splitModelContent,
   StreamAbortedError, takeLaunchCode, threadDisplayTitle, welcomeExamples, getThreadMessages,
 } from './api'
 
@@ -209,6 +209,25 @@ describe('chat api', () => {
     expect(mapped[1].text).toBe('**OK**')
     expect(mapped[1].runId).toBe('run_1')
     expect(mapped[1].reply?.type).toBe('markdown')
+  })
+
+  it('replyDataBlocks 展平 bundle 中的表格', () => {
+    const blocks = replyDataBlocks({
+      kind: 'bundle',
+      items: [
+        {
+          kind: 'table',
+          tool: 'query_my_travel_expense_list',
+          title: '行程报销查询',
+          columns: [{ key: 'id', label: '单号' }],
+          items: [{ id: 1 }],
+          total: 1,
+        },
+      ],
+    })
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].kind).toBe('table')
+    expect(blocks[0].title).toBe('行程报销查询')
   })
 
   it('历史用户消息含附件时拆成独立附件消息', () => {
