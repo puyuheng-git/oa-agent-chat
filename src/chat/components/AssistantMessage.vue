@@ -2,20 +2,44 @@
 import { computed, ref } from 'vue'
 import { CopyDocument, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { cellText, downloadExportFile, plainText } from '../api'
+import {
+  cellText,
+  downloadExportFile,
+  plainText,
+  replyDataBlocks,
+  type ConfirmationPendingData,
+  type Reply,
+  type ReplyDataBlock,
+} from '../api'
 import { renderMarkdown } from '../markdown'
 import { errorMessage } from '../../shared/http'
 import type { ArtifactFile, ChatMessage } from '../types'
 import DeliveryResultCard from './DeliveryResultCard.vue'
 import DocumentPreviewDrawer from './DocumentPreviewDrawer.vue'
+import SkillConfirmCard from './SkillConfirmCard.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
-const emit = defineEmits<{ regenerate: [] }>()
+const emit = defineEmits<{ regenerate: []; confirmResolved: [reply: Reply] }>()
 
 const isError = computed(() => props.message.reply?.type === 'error')
 const isWaiting = computed(() => props.message.reply?.type === 'pending')
-const showData = ref(false)
+const isConfirmPending = computed(() => props.message.reply?.type === 'confirmation_pending')
+const confirmData = computed(() => {
+  if (!isConfirmPending.value) return null
+  const data = props.message.reply?.data
+  if (!data || typeof data !== 'object') return null
+  return data as ConfirmationPendingData
+})
+/** 展平 bundle，得到可直接渲染的 table/record（file 走交付卡片）。 */
+const displayBlocks = computed(() =>
+  replyDataBlocks(props.message.reply?.data).filter(
+    (b): b is Extract<ReplyDataBlock, { kind: 'table' | 'record' }> =>
+      b.kind === 'table' || b.kind === 'record',
+  ),
+)
+const hasStructuredTable = computed(() => displayBlocks.value.length > 0)
+const showData = ref(true)
 const previewOpen = ref(false)
 const previewFile = ref<ArtifactFile | null>(null)
 const showThinking = computed(
@@ -33,9 +57,11 @@ const showAnswer = computed(() => {
 const answerHtml = computed(() => renderMarkdown(answerSource(props.message)))
 
 function answerSource(m: ChatMessage): string {
-  // 保留 Markdown；有结构化 data 时只去掉表格行，避免与下方表格重复（列表/引用仍展示）
+  // 仅在下方会渲染结构化表时去掉 Markdown 表格行，避免重复；否则保留原文表格
   const raw = m.text || ''
-  if (!m.reply?.data) return raw
+  const blocks = replyDataBlocks(m.reply?.data)
+  const willRenderTable = blocks.some((b) => b.kind === 'table' || b.kind === 'record')
+  if (!willRenderTable) return raw
   return raw
     .split('\n')
     .filter((l) => {
@@ -57,6 +83,10 @@ async function copy() {
 function onPreview(file: ArtifactFile) {
   previewFile.value = file
   previewOpen.value = true
+}
+
+function onConfirmResolved(reply: Reply) {
+  emit('confirmResolved', reply)
 }
 
 async function onDownload(file: ArtifactFile) {
@@ -88,12 +118,19 @@ async function onDownload(file: ArtifactFile) {
           :streaming="!!message.streaming"
         />
 
-        <div v-if="showAnswer" class="text md-body">
+        <div v-if="showAnswer && !isConfirmPending" class="text md-body">
           <div class="md" v-html="answerHtml" /><span
             v-if="message.streaming && !message.thinkingActive"
             class="cursor"
           >▍</span>
         </div>
+
+        <SkillConfirmCard
+          v-if="confirmData && !message.streaming"
+          :data="confirmData"
+          :content="message.reply?.content"
+          @resolved="onConfirmResolved"
+        />
 
         <DeliveryResultCard
           v-if="message.delivery && !message.streaming"
@@ -103,77 +140,44 @@ async function onDownload(file: ArtifactFile) {
           @download="onDownload"
         />
 
-        <div v-if="showData && message.reply?.data" class="data-wrap">
-          <el-table
-            v-if="message.reply.data.kind === 'table'"
-            :data="message.reply.data.items"
-            size="small"
-            border
-            class="data-table"
-          >
-            <el-table-column
-              v-for="c in message.reply.data.columns"
-              :key="c.key"
-              :label="c.label"
-              min-width="90"
-              show-overflow-tooltip
+        <!-- 表格/详情默认直接展示（含 bundle）；交付卡「查看数据」可折叠 -->
+        <template v-if="hasStructuredTable && showData">
+          <div v-for="(block, idx) in displayBlocks" :key="`${block.kind}-${idx}`" class="data-wrap">
+            <div v-if="block.title" class="data-title">{{ block.title }}</div>
+            <el-table
+              v-if="block.kind === 'table'"
+              :data="block.items"
+              size="small"
+              border
+              class="data-table"
             >
-              <template #default="{ row }">{{ cellText(row[c.key]) }}</template>
-            </el-table-column>
-          </el-table>
-
-          <el-descriptions
-            v-else-if="message.reply.data.kind === 'record'"
-            :column="1"
-            size="small"
-            border
-            class="data-table"
-          >
-            <el-descriptions-item
-              v-for="f in message.reply.data.fields"
-              :key="f.key"
-              :label="f.label"
+              <el-table-column
+                v-for="c in block.columns"
+                :key="c.key"
+                :label="c.label"
+                min-width="90"
+                show-overflow-tooltip
+              >
+                <template #default="{ row }">{{ cellText(row[c.key]) }}</template>
+              </el-table-column>
+            </el-table>
+            <el-descriptions
+              v-else
+              :column="1"
+              size="small"
+              border
+              class="data-table"
             >
-              {{ cellText(message.reply.data.item[f.key]) }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-
-        <!-- 无交付卡片时仍直接展示结构化数据（兼容） -->
-        <div v-else-if="!message.delivery && message.reply?.data" class="data-wrap">
-          <el-table
-            v-if="message.reply.data.kind === 'table'"
-            :data="message.reply.data.items"
-            size="small"
-            border
-            class="data-table"
-          >
-            <el-table-column
-              v-for="c in message.reply.data.columns"
-              :key="c.key"
-              :label="c.label"
-              min-width="90"
-              show-overflow-tooltip
-            >
-              <template #default="{ row }">{{ cellText(row[c.key]) }}</template>
-            </el-table-column>
-          </el-table>
-          <el-descriptions
-            v-else-if="message.reply.data.kind === 'record'"
-            :column="1"
-            size="small"
-            border
-            class="data-table"
-          >
-            <el-descriptions-item
-              v-for="f in message.reply.data.fields"
-              :key="f.key"
-              :label="f.label"
-            >
-              {{ cellText(message.reply.data.item[f.key]) }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
+              <el-descriptions-item
+                v-for="f in block.fields"
+                :key="f.key"
+                :label="f.label"
+              >
+                {{ cellText(block.item[f.key]) }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+        </template>
 
         <div v-if="message.reply?.data && message.reply.notice" class="notice">
           业务系统提示：{{ message.reply.notice }}
@@ -341,6 +345,12 @@ async function onDownload(file: ArtifactFile) {
   overflow: hidden;
   border: 1px solid var(--ds-line);
   background: #fff;
+}
+.data-title {
+  padding: 8px 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-title, #111827);
 }
 .data-table {
   margin: 0;

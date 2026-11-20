@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
 import { TYPE_HINT, appendPending } from './files-from-clipboard'
+import type { Reply } from '../api'
 import type { ChatMessage, PendingAttachment } from '../types'
 
 const props = defineProps<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   stop: []
   example: [text: string]
   regenerate: [msg: ChatMessage]
+  confirmResolved: [msg: ChatMessage, reply: Reply]
   'open-tools': []
 }>()
 
@@ -81,6 +83,7 @@ function onDrop(e: DragEvent) {
       :chat-enabled="chatEnabled"
       @example="emit('example', $event)"
       @regenerate="emit('regenerate', $event)"
+      @confirm-resolved="(msg, reply) => emit('confirmResolved', msg, reply)"
     />
     <Composer
       :model-value="input"

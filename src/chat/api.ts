@@ -33,8 +33,8 @@ export interface DataColumn {
   label: string
 }
 
-/** 结构化结果：列名/字段名来自 Tool 配置，页面不写死业务字段。 */
-export type ReplyData =
+/** 单块结构化结果：列名/字段名来自 Tool 配置，页面不写死业务字段。 */
+export type ReplyDataBlock =
   | { kind: 'table'; tool: string; title: string; columns: DataColumn[]; items: DataRow[]; total: number | null }
   | { kind: 'record'; tool: string; title: string; fields: DataColumn[]; item: DataRow }
   | {
@@ -46,17 +46,69 @@ export type ReplyData =
       expires_in?: number | null
       size_bytes?: number | null
     }
+
+/** 结构化结果；ReAct 多步可能包成 bundle。 */
+export type ReplyData =
+  | ReplyDataBlock
+  | { kind: 'bundle'; items: ReplyDataBlock[] }
   | null
 
+/** 员工确认卡载荷（行程报销 / 个人 Skill 落盘等） */
+export interface ConfirmationPendingData {
+  confirm_kind?: 'skill_pack' | string
+  task_id?: string
+  token?: string
+  expire_at?: string
+  preview?: {
+    kind?: string
+    action?: 'create' | 'update' | string
+    name?: string
+    description?: string
+    skill_md?: string
+    pack_id?: number | null
+    expense_id?: number
+    draft_id?: string | number
+    total_amount?: number | string
+  }
+  /** 确认完成后的回写字段（可选） */
+  decision?: 'confirm' | 'reject' | string
+  skill?: Record<string, unknown>
+}
+
 export interface Reply {
-  type: 'markdown' | 'text' | 'error' | 'pending'
+  type: 'markdown' | 'text' | 'error' | 'pending' | 'confirmation_pending'
   content: string
-  data: ReplyData
+  data: ReplyData | ConfirmationPendingData | null
   error_code?: string
   /** 业务系统随结果返回的提示语 */
   notice?: string
   /** 多步查询依次调用的 Tool */
   chain?: string[]
+}
+
+export function isReplyData(data: Reply['data'] | undefined): data is Exclude<ReplyData, null> {
+  return !!data && typeof data === 'object' && 'kind' in data
+}
+
+const BLOCK_KINDS = new Set(['table', 'record', 'file'])
+
+/** 把 bundle 展平为可渲染的 table/record/file；未知 kind 忽略。 */
+export function replyDataBlocks(data: Reply['data'] | undefined): ReplyDataBlock[] {
+  if (!isReplyData(data)) return []
+  if (data.kind === 'bundle') {
+    const items = Array.isArray(data.items) ? data.items : []
+    return items.filter(
+      (item): item is ReplyDataBlock =>
+        !!item && typeof item === 'object' && BLOCK_KINDS.has(String((item as { kind?: string }).kind)),
+    )
+  }
+  if (BLOCK_KINDS.has(data.kind)) return [data]
+  return []
+}
+
+/** 交付摘要优先取第一块 table/record/file。 */
+export function primaryReplyBlock(data: Reply['data'] | undefined): ReplyDataBlock | null {
+  return replyDataBlocks(data)[0] ?? null
 }
 
 export interface MessageResult {
@@ -342,6 +394,20 @@ export function deleteMemory(memoryId: string): Promise<{ ok: boolean }> {
 /** 一键清空本人 active 记忆；须传 confirm=true（与后端契约一致）。 */
 export function clearMemory(confirm = true): Promise<{ ok: boolean; deleted: number }> {
   return request('DELETE', '/v1/chat/memory', { confirm }, auth())
+}
+
+/** 员工确认卡：确认或取消（个人 Skill 落盘 / 写 Workflow）。 */
+export function decideConfirmation(
+  taskId: string,
+  token: string,
+  decision: 'confirm' | 'reject' = 'confirm',
+): Promise<MessageResult> {
+  return request(
+    'POST',
+    `/v1/chat/confirmations/${encodeURIComponent(taskId)}`,
+    { token, decision },
+    auth(),
+  )
 }
 
 /** 记忆 kind 展示文案 */

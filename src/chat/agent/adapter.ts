@@ -66,6 +66,7 @@ export function mapRunStatus(runStatus: string): AgentTask['status'] {
     case 'waiting_input':
       return 'waiting_input'
     case 'waiting_approval':
+    case 'waiting_confirmation':
     case 'intervention':
       return 'waiting_approval'
     case 'succeeded':

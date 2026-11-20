@@ -22,6 +22,29 @@ describe('delivery', () => {
     expect(d?.hasStructuredData).toBe(true)
   })
 
+  it('bundle 内表格也能生成交付摘要', () => {
+    const d = deliveryFromReply({
+      type: 'markdown',
+      content: '共查到 37 条',
+      data: {
+        kind: 'bundle',
+        items: [
+          {
+            kind: 'table',
+            tool: 'query_my_travel_expense_list',
+            title: '行程报销查询',
+            columns: [{ key: 'id', label: '单号' }],
+            items: [{ id: 1 }],
+            total: 37,
+          },
+        ],
+      },
+    })
+    expect(d?.title).toBe('行程报销查询')
+    expect(d?.highlights.some((h) => h.value.includes('37'))).toBe(true)
+    expect(d?.hasStructuredData).toBe(true)
+  })
+
   it('无结构化数据时可用 Mock 任务生成演示摘要', () => {
     const task: AgentTask = {
       id: 't1',
