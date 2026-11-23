@@ -1,6 +1,29 @@
 import { primaryReplyBlock, replyDataBlocks, type Reply } from './api'
 import type { AgentTask, ArtifactFile, DeliverySummary } from './types'
 
+/** 回答内文件名下载锚点前缀；点击时拦截并走鉴权下载。 */
+export const EXPORT_DOWNLOAD_HASH_PREFIX = '#ds-export:'
+
+/** 把加粗文件名换成可点下载的 Markdown 链接（票据仅放 hash，不进可见文案）。 */
+export function linkifyExportFilename(content: string, filename: string, ticket: string): string {
+  const name = (filename || '').trim()
+  const t = (ticket || '').trim()
+  if (!content || !name || !t) return content
+  const bold = `**${name}**`
+  if (!content.includes(bold)) return content
+  const href = `${EXPORT_DOWNLOAD_HASH_PREFIX}${encodeURIComponent(t)}`
+  return content.split(bold).join(`[${name}](${href})`)
+}
+
+/** 解析回答内导出下载锚点；非本协议返回 null。 */
+export function parseExportDownloadHref(href: string): { ticket: string } | null {
+  const raw = (href || '').trim()
+  if (!raw.startsWith(EXPORT_DOWNLOAD_HASH_PREFIX)) return null
+  const ticket = decodeURIComponent(raw.slice(EXPORT_DOWNLOAD_HASH_PREFIX.length)).trim()
+  if (!ticket) return null
+  return { ticket }
+}
+
 export function exportArtifact(reply: Reply | undefined): ArtifactFile | null {
   const file = replyDataBlocks(reply?.data).find((b) => b.kind === 'file')
   if (!file || file.kind !== 'file' || !file.ticket) return null

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildDelivery, deliveryFromReply } from './delivery'
+import {
+  buildDelivery,
+  deliveryFromReply,
+  linkifyExportFilename,
+  parseExportDownloadHref,
+} from './delivery'
 import type { AgentTask } from './types'
 
 describe('delivery', () => {
@@ -92,5 +97,24 @@ describe('delivery', () => {
     expect(d?.artifacts?.[0]?.exportTicket).toBe('ticket-1')
     expect(d?.artifacts?.[0]?.kind).toBe('xlsx')
     expect(d?.artifacts?.[0]?.name).toBe('导出.xlsx')
+  })
+
+  it('回答中的加粗文件名改成可下载链接', () => {
+    const linked = linkifyExportFilename(
+      '已生成文件 **报销明细.xlsx**，可下载。',
+      '报销明细.xlsx',
+      'ticket-abc',
+    )
+    expect(linked).toContain('[报销明细.xlsx](#ds-export:ticket-abc)')
+    expect(linked).not.toContain('**报销明细.xlsx**')
+    expect(parseExportDownloadHref('#ds-export:ticket-abc')).toEqual({ ticket: 'ticket-abc' })
+    expect(parseExportDownloadHref('https://example.com')).toBeNull()
+  })
+
+  it('无票据或无文件名时不改写正文', () => {
+    expect(linkifyExportFilename('已生成文件 **a.xlsx**，可下载。', 'a.xlsx', '')).toBe(
+      '已生成文件 **a.xlsx**，可下载。',
+    )
+    expect(linkifyExportFilename('ok', '', 't1')).toBe('ok')
   })
 })

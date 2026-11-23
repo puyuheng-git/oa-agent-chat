@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { errorMessage } from '../shared/http'
@@ -310,7 +310,8 @@ async function applyOpenedSession(s: ChatSessionInfo) {
   threadId.value = s.thread_id || ''
   skills.value = s.skills ?? []
   chatEnabled.value = !!s.chat
-  maxChars.value = s.message_max_chars ?? 500
+  // 能力接口返回的是模型窗口换算后的入口上限（默认约 10 万字），不再是旧的 500 固定配置
+  maxChars.value = s.message_max_chars ?? 100000
   poll = pollSettings(s)
   examples.value = welcomeExamples(skills.value)
   activeConversationId.value = threadId.value

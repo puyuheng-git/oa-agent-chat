@@ -13,3 +13,9 @@ declare module '*.vue' {
   const component: DefineComponent<object, object, unknown>
   export default component
 }
+
+declare module 'markdown-it-task-lists'
+declare module 'markdown-it-footnote'
+declare module 'markdown-it-deflist'
+declare module 'markdown-it-container'
+declare module 'markdown-it-texmath'
