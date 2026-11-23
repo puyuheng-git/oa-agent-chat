@@ -37,6 +37,15 @@ export interface DataColumn {
 export type ReplyData =
   | { kind: 'table'; tool: string; title: string; columns: DataColumn[]; items: DataRow[]; total: number | null }
   | { kind: 'record'; tool: string; title: string; fields: DataColumn[]; item: DataRow }
+  | {
+      kind: 'file'
+      tool: string
+      title: string
+      filename: string
+      ticket: string
+      expires_in?: number | null
+      size_bytes?: number | null
+    }
   | null
 
 export interface Reply {
@@ -138,6 +147,23 @@ function auth(): Record<string, string> {
   return ticket ? { Authorization: `Bearer ${ticket}` } : {}
 }
 
+/** 用当前会话下载一次性导出文件。不能 window.open，否则带不上 Bearer。 */
+export async function downloadExportFile(exportTicket: string, filename: string): Promise<void> {
+  const resp = await fetch(apiUrl(`/v1/chat/exports/${encodeURIComponent(exportTicket)}`), { headers: auth() })
+  if (!resp.ok) {
+    throw new ApiError(resp.status, 'DOWNLOAD_FAILED', '文件不存在或已过期')
+  }
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename || '导出.xlsx'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function openSession(launchCode: string): Promise<ChatSessionInfo> {
   const s = await request<ChatSessionInfo>('POST', '/v1/chat/session', { launch_code: launchCode })
   ticket = s.ticket
@@ -169,23 +195,29 @@ export function createThread(): Promise<ChatThreadItem> {
   return request('POST', '/v1/chat/threads', {}, auth())
 }
 
+async function fetchThreadMessagePage(
+  threadId: string,
+  page: number,
+  pageSize: number,
+): Promise<ThreadMessagesResponse> {
+  const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  return request<ThreadMessagesResponse>(
+    'GET',
+    `/v1/chat/threads/${encodeURIComponent(threadId)}/messages?${q}`,
+    undefined,
+    auth(),
+  )
+}
+
 export async function getThreadMessages(threadId: string): Promise<ThreadMessageItem[]> {
   const pageSize = 100
-  let page = 1
-  const all: ThreadMessageItem[] = []
-  for (;;) {
-    const q = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
-    const res = await request<ThreadMessagesResponse>(
-      'GET',
-      `/v1/chat/threads/${encodeURIComponent(threadId)}/messages?${q}`,
-      undefined,
-      auth(),
-    )
-    all.push(...res.items)
-    if (all.length >= res.total || res.items.length < pageSize) break
-    page += 1
-  }
-  return all
+  const first = await fetchThreadMessagePage(threadId, 1, pageSize)
+  if (first.items.length >= first.total || first.items.length < pageSize) return first.items
+  const lastPage = Math.ceil(first.total / pageSize)
+  const rest = await Promise.all(
+    Array.from({ length: lastPage - 1 }, (_, i) => fetchThreadMessagePage(threadId, i + 2, pageSize)),
+  )
+  return [first, ...rest].flatMap((page) => page.items)
 }
 
 export function patchThread(
@@ -322,18 +354,62 @@ export class StreamAbortedError extends Error {
   }
 }
 
+export interface UploadedAttachment {
+  file_id: string
+  filename: string
+  size_bytes: number
+  media_kind: string
+}
+
+/** 整批上传。FormData 字段名为 files；不设置 Content-Type，由浏览器写 multipart 边界。signal 中止时以 AbortError 拒绝。 */
+export async function uploadAttachments(files: File[], signal?: AbortSignal): Promise<UploadedAttachment[]> {
+  if (signal?.aborted) throw new DOMException('已取消上传', 'AbortError')
+  const form = new FormData()
+  for (const file of files) form.append('files', file, file.name)
+  const resp = await fetch(apiUrl('/v1/chat/attachments'), {
+    method: 'POST',
+    headers: { Accept: 'application/json', ...auth() },
+    credentials: import.meta.env.VITE_API_BASE_URL ? 'omit' : 'same-origin',
+    body: form,
+    signal,
+  })
+  const text = await resp.text()
+  let data: any = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = null
+  }
+  if (!resp.ok) {
+    const err = data?.error
+    throw new ApiError(resp.status, err?.code ?? 'HTTP_ERROR', err?.message ?? `请求失败（HTTP ${resp.status}）`)
+  }
+  const rows = Array.isArray(data?.files) ? data.files : []
+  return rows.map((row: any) => ({
+    file_id: String(row?.file_id ?? ''),
+    filename: String(row?.filename ?? ''),
+    size_bytes: Number(row?.size_bytes ?? 0),
+    media_kind: String(row?.media_kind ?? ''),
+  }))
+}
+
 /** 流式发送：onDelta 收到回复正文的新增片段；返回与 sendMessage 相同的完整结果。可通过 signal 中止读取。 */
 export async function sendMessageStream(
   message: string,
   onDelta: (piece: string) => void,
   signal?: AbortSignal,
+  attachmentIds?: string[],
 ): Promise<MessageResult> {
   try {
     const resp = await fetch(apiUrl('/v1/chat/messages/stream'), {
       method: 'POST',
       headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json', ...auth() },
       credentials: import.meta.env.VITE_API_BASE_URL ? 'omit' : 'same-origin',
-      body: JSON.stringify({ message, client_msg_id: clientMsgId() }),
+      body: JSON.stringify({
+        message,
+        client_msg_id: clientMsgId(),
+        attachment_ids: attachmentIds ?? [],
+      }),
       signal,
     })
     if (!resp.ok) {

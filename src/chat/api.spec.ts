@@ -3,7 +3,7 @@ import {
   cellText, clearMemory, clearTicket, deleteMemory, formatRelativeTime, hasTicket, listMemory,
   mapThreadMessages, memoryKindLabel, openSession, parseSse, plainText,
   pollSettings, refreshDelayMs, sendMessage, sendMessageStream, StreamAbortedError, takeLaunchCode,
-  threadDisplayTitle, welcomeExamples,
+  threadDisplayTitle, welcomeExamples, getThreadMessages,
 } from './api'
 
 describe('streaming', () => {
@@ -199,5 +199,37 @@ describe('chat api', () => {
     expect(memoryKindLabel('preference')).toBe('偏好')
     expect(memoryKindLabel('constraint')).toBe('约束')
     expect(memoryKindLabel('unknown')).toBe('unknown')
+  })
+})
+
+describe('getThreadMessages', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTicket()
+  })
+
+  it('多页历史并行拉取后按页序拼回', async () => {
+    const pages = new Map<string, { items: { message_id: string }[]; total: number }>()
+    for (let page = 1; page <= 3; page += 1) {
+      const items = Array.from({ length: page === 3 ? 20 : 100 }, (_, i) => ({
+        message_id: `m${page}-${i}`,
+      }))
+      pages.set(`page=${page}`, { items, total: 220 })
+    }
+    let inflight = 0
+    let maxInflight = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      inflight += 1
+      maxInflight = Math.max(maxInflight, inflight)
+      await new Promise((r) => setTimeout(r, 10))
+      inflight -= 1
+      const page = new URL(url, 'http://local').searchParams.get('page')
+      return new Response(JSON.stringify(pages.get(`page=${page}`)), { status: 200 })
+    }))
+    const items = await getThreadMessages('thr_1')
+    expect(items).toHaveLength(220)
+    expect(items[0].message_id).toBe('m1-0')
+    expect(items[200].message_id).toBe('m3-0')
+    expect(maxInflight).toBeGreaterThan(1)
   })
 })

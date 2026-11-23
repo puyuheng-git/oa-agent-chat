@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import UserMessage from './UserMessage.vue'
 import AssistantMessage from './AssistantMessage.vue'
 import WelcomeScreen from './WelcomeScreen.vue'
@@ -8,6 +8,7 @@ import type { ChatMessage } from '../types'
 const props = defineProps<{
   messages: ChatMessage[]
   sending: boolean
+  loading?: boolean
   displayName: string
   examples: string[]
   skillNames: string[]
@@ -21,15 +22,24 @@ const emit = defineEmits<{
 
 const listEl = ref<HTMLElement | null>(null)
 
-async function scrollToBottom() {
+async function scrollToBottom(smooth = true) {
   await nextTick()
-  listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+  listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
 }
 
 watch(
-  () => [props.messages.length, props.messages[props.messages.length - 1]?.text, props.sending],
-  () => scrollToBottom(),
+  () =>
+    [props.messages.length, props.messages[props.messages.length - 1]?.id, props.messages[props.messages.length - 1]?.text, props.sending] as const,
+  (next, prev) => {
+    const appended = !!prev && next[0] === prev[0] + 1
+    const streamed = !!prev && next[1] === prev[1] && next[2] !== prev[2]
+    void scrollToBottom(appended || streamed || next[3])
+  },
 )
+
+onMounted(() => {
+  void scrollToBottom(false)
+})
 
 defineExpose({ scrollToBottom })
 </script>
@@ -37,8 +47,9 @@ defineExpose({ scrollToBottom })
 <template>
   <main ref="listEl" class="messages">
     <div class="column">
+      <p v-if="loading && !messages.length" class="opening">正在打开会话…</p>
       <WelcomeScreen
-        v-if="!messages.length"
+        v-else-if="!messages.length"
         :display-name="displayName"
         :examples="examples"
         :skill-names="skillNames"
@@ -72,7 +83,11 @@ defineExpose({ scrollToBottom })
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px 20px 12px;
-  scroll-behavior: smooth;
+}
+.opening {
+  margin: 24px 0;
+  color: var(--ds-muted);
+  font-size: 13px;
 }
 .column {
   max-width: var(--ds-chat-max);

@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { CopyDocument, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { cellText, plainText } from '../api'
+import { cellText, downloadExportFile, plainText } from '../api'
+import { errorMessage } from '../../shared/http'
 import type { ArtifactFile, ChatMessage } from '../types'
 import DeliveryResultCard from './DeliveryResultCard.vue'
 import DocumentPreviewDrawer from './DocumentPreviewDrawer.vue'
@@ -40,7 +41,15 @@ function onPreview(file: ArtifactFile) {
   previewOpen.value = true
 }
 
-function onDownload(file: ArtifactFile) {
+async function onDownload(file: ArtifactFile) {
+  if (file.exportTicket) {
+    try {
+      await downloadExportFile(file.exportTicket, file.name)
+    } catch (e) {
+      ElMessage.error(errorMessage(e))
+    }
+    return
+  }
   if (!file.downloadUrl) {
     ElMessage.info(file.previewNote || '该文件暂无真实下载地址（演示数据或后端未提供）')
     return

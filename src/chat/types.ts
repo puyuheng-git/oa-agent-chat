@@ -66,6 +66,8 @@ export interface LocalConversation {
   title: string | null
   updatedAt: number
   messages: ChatMessage[]
+  /** 历史已成功拉过一次；再次进入先用这份，后台再刷新。 */
+  historyLoaded?: boolean
   lastChannel?: string | null
 }
 
@@ -94,6 +96,8 @@ export interface ArtifactFile {
   status: ArtifactStatus
   /** Mock / 真实下载地址；空表示不可下载 */
   downloadUrl?: string
+  /** 真实导出票据。下载必须带会话 Bearer，不能直接打开 downloadUrl。 */
+  exportTicket?: string
   previewable: boolean
   previewNote?: string
 }

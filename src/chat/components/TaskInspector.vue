@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { ArrowDown, ArrowUp, Close, Monitor } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { AgentTask, ArtifactFile, TaskStep } from '../types'
+import { downloadExportFile } from '../api'
+import { errorMessage } from '../../shared/http'
 import TaskProgressCard from './TaskProgressCard.vue'
 import StepTimeline from './StepTimeline.vue'
 import ToolActivityList from './ToolActivityList.vue'
@@ -50,7 +52,15 @@ function onPreview(file: ArtifactFile) {
   previewOpen.value = true
 }
 
-function onDownload(file: ArtifactFile) {
+async function onDownload(file: ArtifactFile) {
+  if (file.exportTicket) {
+    try {
+      await downloadExportFile(file.exportTicket, file.name)
+    } catch (e) {
+      ElMessage.error(errorMessage(e))
+    }
+    return
+  }
   if (!file.downloadUrl) {
     ElMessage.info('该文件暂无真实下载地址（演示数据或后端未提供）')
     return
