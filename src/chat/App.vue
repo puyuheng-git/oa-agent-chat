@@ -27,7 +27,7 @@ import {
   type SkillMenuItem,
 } from './api'
 import { MockAgentAdapter, mapRunStatus } from './agent/adapter'
-import { buildDelivery, exportArtifact } from './delivery'
+import { exportArtifact } from './delivery'
 import { isOrchestratorDownError, isSessionExpiredError } from './bootstrap-errors'
 import { backToOa, requestOaRelaunch } from './oa-relay'
 import AppLayout from './components/AppLayout.vue'
@@ -180,10 +180,7 @@ async function loadThreads() {
 }
 
 function rememberThreadMessages(id: string, items: Awaited<ReturnType<typeof getThreadMessages>>) {
-  const mapped = mapThreadMessages(items).map((m) => ({
-    ...m,
-    delivery: buildDelivery(m.reply, null) ?? undefined,
-  }))
+  const mapped = mapThreadMessages(items)
   const c = conversations.value.find((x) => x.id === id)
   if (c) {
     c.messages = mapped
@@ -408,7 +405,6 @@ function pollRun(msg: ChatMessage, startedAt = Date.now()) {
       if (r.done && r.reply) {
         msg.reply = r.reply
         Object.assign(msg, assistantDisplayFields(r.reply.content), { thinkingActive: false })
-        msg.delivery = buildDelivery(r.reply, currentTask.value) ?? undefined
         mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
         rememberExport(r.reply)
         return
@@ -537,7 +533,6 @@ async function send(text?: string) {
         signal,
         attachmentIds,
       )
-      const delivery = buildDelivery(r.reply, currentTask.value)
       const finalDisplay = assistantDisplayFields(r.reply.content)
       const streamDisplay = assistantDisplayFields(streamRaw)
       patchMessages((list) => {
@@ -550,7 +545,6 @@ async function send(text?: string) {
           reply: r.reply,
           runId: r.run_id,
           streaming: false,
-          delivery: delivery ?? undefined,
         })
       })
       mockAdapter.syncLiveStatus(mapRunStatus(r.run_status))
@@ -810,7 +804,6 @@ function onConfirmResolved(msg: ChatMessage, reply: Reply) {
       thinking: display.thinking,
       thinkingActive: false,
       reply,
-      delivery: buildDelivery(reply, currentTask.value) ?? undefined,
     })
   })
   mockAdapter.syncLiveStatus('completed')
