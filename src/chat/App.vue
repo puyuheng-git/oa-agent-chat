@@ -11,6 +11,8 @@ import {
   hasTicket,
   listThreads,
   mapThreadMessages,
+  getDevStatus,
+  openDevSession,
   openSession,
   patchThread,
   assistantDisplayFields,
@@ -21,11 +23,14 @@ import {
   switchThread,
   takeLaunchCode,
   threadDisplayTitle,
+  wantsDevLogin,
   welcomeExamples,
+  type ChatSessionInfo,
   type ChatThreadItem,
   type Reply,
   type SkillMenuItem,
 } from './api'
+import DevLoginBar from './components/DevLoginBar.vue'
 import { MockAgentAdapter, mapRunStatus } from './agent/adapter'
 import { exportArtifact } from './delivery'
 import { isOrchestratorDownError, isSessionExpiredError } from './bootstrap-errors'
@@ -46,7 +51,7 @@ import type {
 
 const embedded = new URLSearchParams(window.location.search).get('embed') === '1'
 
-type ShellState = 'loading' | 'ready' | 'expired' | 'no_launch' | 'orchestrator_down'
+type ShellState = 'loading' | 'ready' | 'expired' | 'no_launch' | 'dev_pending' | 'orchestrator_down'
 const state = ref<ShellState>('loading')
 const loadError = ref('')
 const loadingTip = ref('')
@@ -54,12 +59,19 @@ const relaunchFailed = ref(false)
 const relaunching = ref(false)
 const storedLaunchCode = ref('')
 const displayName = ref('')
+const sessionOa = ref('')
 const threadId = ref('')
 const skills = ref<SkillMenuItem[]>([])
 const chatEnabled = ref(false)
 const examples = ref<string[]>([])
 const maxChars = ref(500)
 let poll = pollSettings({})
+
+/** ?dev=1 且后端开发登录可用时展示顶栏。 */
+const showDevBar = ref(false)
+const devOa = ref('')
+const devPassphrase = ref('')
+const devSubmitting = ref(false)
 
 const LOAD_SOFT_TIP_MS = 3000
 const LOAD_ORCHESTRATOR_DOWN_MS = 15000
@@ -261,52 +273,109 @@ function expire(message?: string) {
   state.value = 'expired'
 }
 
-function bootstrapDemoShell() {
-  displayName.value = '演示员工'
-  threadId.value = 'demo_thread'
-  activeConversationId.value = 'demo_thread'
-  chatEnabled.value = true
-  examples.value = ['帮我查本月报销进度', '汇总待我审批的单据']
-  skills.value = [
-    {
-      name: 'oa_query',
-      display_name: 'OA 查询',
-      description: '演示能力',
-      examples: ['帮我查本月报销进度'],
-    },
-  ]
-  conversations.value = Array.from({ length: 14 }, (_, i) => ({
-    id: `demo_${i + 1}`,
-    title: i === 0 ? '本月报销进度咨询' : `历史会话示例 ${i + 1}`,
-    updatedAt: Date.now() - i * 3600_000,
-    messages: [],
-    lastChannel: i % 2 === 0 ? 'oa_web' : 'wecom',
-  }))
-  activeConversationId.value = conversations.value[0].id
-  threadId.value = conversations.value[0].id
+async function probeDevLogin() {
+  if (!wantsDevLogin()) {
+    showDevBar.value = false
+    return false
+  }
+  try {
+    const st = await getDevStatus()
+    showDevBar.value = !!st.enabled
+  } catch {
+    showDevBar.value = false
+  }
+  return showDevBar.value
+}
+
+function resetShellForIdentitySwitch() {
+  abortCtrl?.abort()
+  abortCtrl = null
+  clearTicket()
+  conversations.value = []
+  activeConversationId.value = ''
+  threadId.value = ''
+  displayName.value = ''
+  sessionOa.value = ''
+  currentTask.value = null
+  mockAdapter.dispose()
+  skills.value = []
+  examples.value = []
+  chatEnabled.value = false
+}
+
+async function applyOpenedSession(s: ChatSessionInfo) {
+  displayName.value = s.display_name
+  sessionOa.value = (s.oa || '').trim()
+  if (sessionOa.value) devOa.value = sessionOa.value
+  threadId.value = s.thread_id || ''
+  skills.value = s.skills ?? []
+  chatEnabled.value = !!s.chat
+  maxChars.value = s.message_max_chars ?? 500
+  poll = pollSettings(s)
+  examples.value = welcomeExamples(skills.value)
+  activeConversationId.value = threadId.value
+  await loadThreads()
+  const preferred = preferredConversationId(threadId.value || activeConversationId.value)
+  if (preferred && preferred !== activeConversationId.value) {
+    try {
+      const sw = await switchThread(preferred)
+      threadId.value = sw.thread_id
+      activeConversationId.value = preferred
+    } catch {
+      ensureActiveThread()
+    }
+  } else {
+    ensureActiveThread()
+  }
+  if (activeConversationId.value) await loadMessagesForThread(activeConversationId.value)
   state.value = 'ready'
 }
 
-async function bootstrap(fromRetry = false) {
-  if (
-    import.meta.env.DEV &&
-    !fromRetry &&
-    new URLSearchParams(window.location.search).get('demo') === '1'
-  ) {
-    bootstrapDemoShell()
+async function onDevLoginSubmit() {
+  if (devSubmitting.value) return
+  const oa = devOa.value.trim()
+  const passphrase = devPassphrase.value
+  if (!oa || !passphrase) {
+    ElMessage.warning('请填写 OA 号与开发口令')
     return
   }
+  devSubmitting.value = true
+  loadError.value = ''
+  try {
+    const switching = hasTicket() || state.value === 'ready'
+    if (switching) resetShellForIdentitySwitch()
+    state.value = 'loading'
+    startLoadTimers()
+    const s = await openDevSession(oa, passphrase)
+    clearLoadTimers()
+    loadingTip.value = ''
+    await applyOpenedSession(s)
+    ElMessage.success(switching ? '已切换身份' : '开发登录成功')
+  } catch (e) {
+    clearLoadTimers()
+    loadingTip.value = ''
+    loadError.value = errorMessage(e)
+    if (isOrchestratorDownError(e)) {
+      markOrchestratorDown(loadError.value)
+      return
+    }
+    ElMessage.error(loadError.value)
+    state.value = showDevBar.value ? 'dev_pending' : 'no_launch'
+  } finally {
+    devSubmitting.value = false
+  }
+}
+
+async function bootstrap(fromRetry = false) {
+  const devOk = await probeDevLogin()
 
   if (!fromRetry) {
     const code = takeLaunchCode()
-    if (!code) {
-      state.value = 'no_launch'
-      return
-    }
-    storedLaunchCode.value = code
+    if (code) storedLaunchCode.value = code
   }
+
   if (!storedLaunchCode.value) {
-    state.value = 'no_launch'
+    state.value = devOk ? 'dev_pending' : 'no_launch'
     return
   }
 
@@ -319,29 +388,7 @@ async function bootstrap(fromRetry = false) {
     const s = await openSession(storedLaunchCode.value)
     clearLoadTimers()
     loadingTip.value = ''
-    displayName.value = s.display_name
-    threadId.value = s.thread_id || ''
-    skills.value = s.skills ?? []
-    chatEnabled.value = !!s.chat
-    maxChars.value = s.message_max_chars ?? 500
-    poll = pollSettings(s)
-    examples.value = welcomeExamples(skills.value)
-    activeConversationId.value = threadId.value
-    await loadThreads()
-    const preferred = preferredConversationId(threadId.value || activeConversationId.value)
-    if (preferred && preferred !== activeConversationId.value) {
-      try {
-        const sw = await switchThread(preferred)
-        threadId.value = sw.thread_id
-        activeConversationId.value = preferred
-      } catch {
-        ensureActiveThread()
-      }
-    } else {
-      ensureActiveThread()
-    }
-    if (activeConversationId.value) await loadMessagesForThread(activeConversationId.value)
-    state.value = 'ready'
+    await applyOpenedSession(s)
   } catch (e) {
     clearLoadTimers()
     loadingTip.value = ''
@@ -352,6 +399,10 @@ async function bootstrap(fromRetry = false) {
     }
     if (isOrchestratorDownError(e)) {
       markOrchestratorDown(loadError.value)
+      return
+    }
+    if (devOk) {
+      state.value = 'dev_pending'
       return
     }
     expire()
@@ -828,10 +879,27 @@ defineExpose({
 
 <template>
   <div class="chat-root">
+    <DevLoginBar
+      v-if="showDevBar"
+      v-model:oa="devOa"
+      v-model:passphrase="devPassphrase"
+      :display-name="displayName"
+      :session-oa="sessionOa"
+      :submitting="devSubmitting"
+      @submit="onDevLoginSubmit"
+    />
+
     <div v-if="state === 'loading'" class="center">
       <el-skeleton :rows="4" animated style="width: 360px" />
       <p v-if="loadingTip" class="load-tip">{{ loadingTip }}</p>
     </div>
+
+    <el-result
+      v-else-if="state === 'dev_pending'"
+      icon="info"
+      title="开发登录"
+      sub-title="请在上方填写 OA 号与开发口令后进入。正式环境请从 OA 打开智能助手。"
+    />
 
     <el-result
       v-else-if="state === 'no_launch'"

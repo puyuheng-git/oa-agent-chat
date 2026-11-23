@@ -17,6 +17,8 @@ export interface ChatSessionInfo {
   expires_in: number
   display_name: string
   thread_id: string
+  /** 员工 OA 账号（开发登录与正式会话均可能返回）。 */
+  oa?: string
   skills?: SkillMenuItem[]
   /** 是否支持日常聊天（发布配置允许且有可用模型）。 */
   chat?: boolean
@@ -213,6 +215,21 @@ export function takeLaunchCode(loc: Location = window.location, hist: History = 
     hist.replaceState(null, '', url.pathname + url.search + url.hash)
   }
   return code
+}
+
+/** 是否请求开发登录入口（保留 query，便于刷新后仍显示开发条）。 */
+export function wantsDevLogin(loc: Location = window.location): boolean {
+  return new URLSearchParams(loc.search).get('dev') === '1'
+}
+
+export function getDevStatus(): Promise<{ enabled: boolean }> {
+  return request('GET', '/v1/chat/dev/status')
+}
+
+export async function openDevSession(oa: string, passphrase: string): Promise<ChatSessionInfo> {
+  const s = await request<ChatSessionInfo>('POST', '/v1/chat/dev/session', { oa, passphrase })
+  ticket = s.ticket
+  return s
 }
 
 function auth(): Record<string, string> {

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assistantDisplayFields, cellText, clearMemory, clearTicket, deleteMemory, formatRelativeTime,
-  hasTicket, listMemory, mapThreadMessages, memoryKindLabel, openSession, parseSse, plainText,
+  getDevStatus, hasTicket, listMemory, mapThreadMessages, memoryKindLabel, openDevSession, openSession, parseSse, plainText,
   pollSettings, refreshDelayMs, replyDataBlocks, sendMessage, sendMessageStream, splitModelContent,
-  StreamAbortedError, takeLaunchCode, threadDisplayTitle, welcomeExamples, getThreadMessages,
+  StreamAbortedError, takeLaunchCode, threadDisplayTitle, wantsDevLogin, welcomeExamples, getThreadMessages,
 } from './api'
 
 describe('streaming', () => {
@@ -72,6 +72,29 @@ describe('chat api', () => {
     const hist2 = { replaceState: vi.fn() } as unknown as History
     expect(takeLaunchCode({ href: 'https://agent.example.com/chat/' } as Location, hist2)).toBe('')
     expect(hist2.replaceState).not.toHaveBeenCalled()
+  })
+
+  it('wantsDevLogin 仅识别 dev=1', () => {
+    expect(wantsDevLogin({ search: '?dev=1' } as Location)).toBe(true)
+    expect(wantsDevLogin({ search: '?dev=0' } as Location)).toBe(false)
+    expect(wantsDevLogin({ search: '' } as Location)).toBe(false)
+  })
+
+  it('getDevStatus / openDevSession 走开发登录接口并写入 ticket', async () => {
+    const fn = mockFetch([
+      { enabled: true },
+      { ticket: 't-dev', expires_in: 1800, display_name: '张三', thread_id: 'thr_d', oa: 'zhangsan' },
+    ])
+    clearTicket()
+    const st = await getDevStatus()
+    expect(st.enabled).toBe(true)
+    expect(fn.mock.calls[0][0]).toBe('/v1/chat/dev/status')
+    const s = await openDevSession('zhangsan', 'secret')
+    expect(s.oa).toBe('zhangsan')
+    expect(hasTicket()).toBe(true)
+    const [url, init] = fn.mock.calls[1]
+    expect(url).toBe('/v1/chat/dev/session')
+    expect(JSON.parse(init.body)).toEqual({ oa: 'zhangsan', passphrase: 'secret' })
   })
 
   it('ticket 只在内存，消息请求带 Bearer 与 client_msg_id', async () => {
