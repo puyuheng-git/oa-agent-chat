@@ -1,21 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { CopyDocument, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import {
-  cellText,
-  downloadExportFile,
   plainText,
-  replyDataBlocks,
   type ConfirmationPendingData,
   type Reply,
-  type ReplyDataBlock,
 } from '../api'
 import { renderMarkdown } from '../markdown'
-import { errorMessage } from '../../shared/http'
-import type { ArtifactFile, ChatMessage } from '../types'
-import DeliveryResultCard from './DeliveryResultCard.vue'
-import DocumentPreviewDrawer from './DocumentPreviewDrawer.vue'
+import type { ChatMessage } from '../types'
 import SkillConfirmCard from './SkillConfirmCard.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 
@@ -31,17 +24,6 @@ const confirmData = computed(() => {
   if (!data || typeof data !== 'object') return null
   return data as ConfirmationPendingData
 })
-/** 展平 bundle，得到可直接渲染的 table/record（file 走交付卡片）。 */
-const displayBlocks = computed(() =>
-  replyDataBlocks(props.message.reply?.data).filter(
-    (b): b is Extract<ReplyDataBlock, { kind: 'table' | 'record' }> =>
-      b.kind === 'table' || b.kind === 'record',
-  ),
-)
-const hasStructuredTable = computed(() => displayBlocks.value.length > 0)
-const showData = ref(true)
-const previewOpen = ref(false)
-const previewFile = ref<ArtifactFile | null>(null)
 const showThinking = computed(
   () =>
     !!props.message.thinkingActive ||
@@ -49,27 +31,12 @@ const showThinking = computed(
 )
 /** 思考进行中且尚无正文时只展示思考块，避免空气泡抢视觉。 */
 const showAnswer = computed(() => {
-  const t = answerSource(props.message)
+  const t = props.message.text || ''
   if (props.message.thinkingActive && !t) return false
   return true
 })
 
-const answerHtml = computed(() => renderMarkdown(answerSource(props.message)))
-
-function answerSource(m: ChatMessage): string {
-  // 仅在下方会渲染结构化表时去掉 Markdown 表格行，避免重复；否则保留原文表格
-  const raw = m.text || ''
-  const blocks = replyDataBlocks(m.reply?.data)
-  const willRenderTable = blocks.some((b) => b.kind === 'table' || b.kind === 'record')
-  if (!willRenderTable) return raw
-  return raw
-    .split('\n')
-    .filter((l) => {
-      const t = l.trim()
-      return t && !t.startsWith('|')
-    })
-    .join('\n')
-}
+const answerHtml = computed(() => renderMarkdown(props.message.text || ''))
 
 async function copy() {
   try {
@@ -80,29 +47,8 @@ async function copy() {
   }
 }
 
-function onPreview(file: ArtifactFile) {
-  previewFile.value = file
-  previewOpen.value = true
-}
-
 function onConfirmResolved(reply: Reply) {
   emit('confirmResolved', reply)
-}
-
-async function onDownload(file: ArtifactFile) {
-  if (file.exportTicket) {
-    try {
-      await downloadExportFile(file.exportTicket, file.name)
-    } catch (e) {
-      ElMessage.error(errorMessage(e))
-    }
-    return
-  }
-  if (!file.downloadUrl) {
-    ElMessage.info(file.previewNote || '该文件暂无真实下载地址（演示数据或后端未提供）')
-    return
-  }
-  window.open(file.downloadUrl, '_blank', 'noopener')
 }
 </script>
 
@@ -132,53 +78,6 @@ async function onDownload(file: ArtifactFile) {
           @resolved="onConfirmResolved"
         />
 
-        <DeliveryResultCard
-          v-if="message.delivery && !message.streaming"
-          :delivery="message.delivery"
-          @view-data="showData = !showData"
-          @preview="onPreview"
-          @download="onDownload"
-        />
-
-        <!-- 表格/详情默认直接展示（含 bundle）；交付卡「查看数据」可折叠 -->
-        <template v-if="hasStructuredTable && showData">
-          <div v-for="(block, idx) in displayBlocks" :key="`${block.kind}-${idx}`" class="data-wrap">
-            <div v-if="block.title" class="data-title">{{ block.title }}</div>
-            <el-table
-              v-if="block.kind === 'table'"
-              :data="block.items"
-              size="small"
-              border
-              class="data-table"
-            >
-              <el-table-column
-                v-for="c in block.columns"
-                :key="c.key"
-                :label="c.label"
-                min-width="90"
-                show-overflow-tooltip
-              >
-                <template #default="{ row }">{{ cellText(row[c.key]) }}</template>
-              </el-table-column>
-            </el-table>
-            <el-descriptions
-              v-else
-              :column="1"
-              size="small"
-              border
-              class="data-table"
-            >
-              <el-descriptions-item
-                v-for="f in block.fields"
-                :key="f.key"
-                :label="f.label"
-              >
-                {{ cellText(block.item[f.key]) }}
-              </el-descriptions-item>
-            </el-descriptions>
-          </div>
-        </template>
-
         <div v-if="message.reply?.data && message.reply.notice" class="notice">
           业务系统提示：{{ message.reply.notice }}
         </div>
@@ -195,8 +94,6 @@ async function onDownload(file: ArtifactFile) {
         </button>
       </div>
     </div>
-
-    <DocumentPreviewDrawer v-model:open="previewOpen" :file="previewFile" />
   </div>
 </template>
 
@@ -305,97 +202,77 @@ async function onDownload(file: ArtifactFile) {
   padding: 10px 12px;
   overflow: auto;
   border-radius: 8px;
-  background: #0f172a0a;
-  border: 1px solid var(--ds-line, #e5e7eb);
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.88em;
+  line-height: 1.5;
 }
 .md :deep(pre code) {
   padding: 0;
   background: transparent;
 }
-.md :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
+.md :deep(blockquote) {
   margin: 0.5em 0;
-  font-size: 13px;
+  padding: 0.25em 0 0.25em 0.85em;
+  border-left: 3px solid var(--ds-line, #e5e7eb);
+  color: var(--ds-muted, #667085);
+}
+.md :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0 0.75em;
+  font-size: 0.92em;
 }
 .md :deep(th),
 .md :deep(td) {
   border: 1px solid var(--ds-line, #e5e7eb);
   padding: 6px 8px;
   text-align: left;
+  vertical-align: top;
 }
-.md :deep(blockquote) {
-  margin: 0.5em 0;
-  padding: 4px 12px;
-  border-left: 3px solid var(--ds-brand, #2563eb);
-  color: var(--ds-muted, #667085);
+.md :deep(th) {
+  background: rgba(15, 23, 42, 0.04);
+  font-weight: 600;
+}
+.md :deep(a) {
+  color: var(--ds-brand, #2563eb);
+  text-decoration: none;
+}
+.md :deep(a:hover) {
+  text-decoration: underline;
 }
 .cursor {
+  display: inline-block;
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
   color: var(--ds-brand);
-  animation: blink 1s steps(2) infinite;
 }
 @keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
-.data-wrap {
-  margin-top: 10px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--ds-line);
-  background: #fff;
-}
-.data-title {
-  padding: 8px 12px 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ds-title, #111827);
-}
-.data-table {
-  margin: 0;
-  max-width: 100%;
+  50% { opacity: 0; }
 }
 .notice {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-left: 3px solid var(--ds-warning);
-  background: var(--ds-warning-bg);
-  color: #8a5a00;
+  margin-top: 8px;
   font-size: 13px;
-  white-space: pre-wrap;
-  border-radius: 0 8px 8px 0;
+  color: var(--ds-muted, #667085);
 }
 .actions {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   margin-top: 6px;
-  opacity: 0.55;
-  transition: opacity 0.15s;
-}
-.row:hover .actions {
-  opacity: 1;
 }
 .actions button {
-  border: none;
-  background: transparent;
-  color: var(--ds-muted);
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ds-muted, #667085);
   font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 .actions button:hover {
-  background: var(--ds-brand-soft);
-  color: var(--ds-brand);
-}
-@media (hover: none) {
-  .actions {
-    opacity: 1;
-  }
+  color: var(--ds-title);
+  background: rgba(15, 23, 42, 0.04);
 }
 </style>
