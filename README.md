@@ -180,6 +180,7 @@ npm run dev
 
 ```bash
 npm ci
+VITE_API_BASE_URL=https://your-agent-api.example.com npm run build
 npm test          # 建议发布前执行
 # 同域反代：可留空 VITE_API_BASE_URL
 # 跨域 API：必须注入
@@ -271,6 +272,9 @@ docker build --build-arg VITE_API_BASE_URL=https://agent-api.example.com -t oa-a
 
 ### 5.6 回滚与更新
 
+完整步骤见 **[docs/DEPLOY.md](docs/DEPLOY.md)**（含 **OA 换码 / embed / postMessage** 与 **Agent `/v1/chat/*` API 契约**、Nginx/CDN、检查清单与故障速查）。
+
+### OA 侧如何指向本静态 URL
 1. 整包回滚上一版 `dist`（`index.html` 与 hashed assets 配套）。
 2. 改 API 地址 → 改变量后全量重建发布。
 3. 只改挂件 → 可单独换 `embed.js` 并刷 CDN。
@@ -466,6 +470,7 @@ Idempotency-Key: <uuid>    # 非 GET 写请求，每次新建
 }
 ```
 
+同时确保静态资源允许跨域访问 API：`VITE_API_BASE_URL` 指向的 Orchestrator 需为聊天域名配置 CORS（含 `Authorization` 头）。对话壳对跨域 API 使用 Bearer ticket，不依赖 API Cookie。
 SSE：`event: delta` → `{ "text" }`；`event: done` → 完整 `MessageResult`；注释行（心跳）忽略。反向代理**禁止缓冲** `text/event-stream`。
 
 `reply.data` 支持 `table` / `record` / `file`；列名来自 Tool 配置，前端不写死业务字段。
