@@ -206,7 +206,7 @@ async function onAnswerClick(e: MouseEvent) {
 .body {
   min-width: 0;
   flex: 1;
-  max-width: min(100%, 620px);
+  max-width: min(100%, 880px);
 }
 .content {
   color: var(--ds-title);

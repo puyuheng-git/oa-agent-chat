@@ -40,9 +40,9 @@ const emit = defineEmits<{
 const query = ref('')
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
-/** 分区展开状态独立于侧栏收起，避免「展开导航」时被强制全部打开；工作空间默认展开以免登录后看不到入口 */
-const workspaceOpen = ref(true)
-const manageOpen = ref(true)
+/** 分区展开状态独立于侧栏收起；对话页默认折叠，把高度留给历史会话 */
+const workspaceOpen = ref(false)
+const manageOpen = ref(false)
 
 const workspaceItems: { key: NavKey; label: string; icon: unknown }[] = [
   { key: 'workspace', label: 'Skill管理', icon: OfficeBuilding },
@@ -630,14 +630,15 @@ function toggleManage() {
 
 .sidebar-dock {
   flex: 0 0 auto;
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 8px 10px 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
   background: linear-gradient(180deg, rgba(0, 70, 130, 0.12) 0%, rgba(0, 55, 110, 0.22) 100%);
-  /* 保证管理中心展开时仍有充足可视高度，历史区自行收缩滚动 */
-  min-height: min(268px, 42vh);
+  /* 默认折叠时不占大块高度；展开后才抬高，历史区自行收缩滚动 */
+  min-height: 0;
   max-height: min(58vh, 480px);
   overflow-y: auto;
   overscroll-behavior: contain;

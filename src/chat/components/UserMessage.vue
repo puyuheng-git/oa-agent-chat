@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 .bubble {
-  max-width: min(85%, 520px);
+  max-width: min(88%, 760px);
   padding: 10px 14px;
   border-radius: 12px 12px 4px 12px;
   background: var(--ds-brand);
@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
-  max-width: min(85%, 520px);
+  max-width: min(88%, 760px);
 }
 .att-card {
   display: flex;
