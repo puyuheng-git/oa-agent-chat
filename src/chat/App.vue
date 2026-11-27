@@ -35,6 +35,7 @@ import { MockAgentAdapter, mapRunStatus } from './agent/adapter'
 import { exportArtifact } from './delivery'
 import { isOrchestratorDownError, isSessionExpiredError } from './bootstrap-errors'
 import { backToOa, requestOaRelaunch } from './oa-relay'
+import { composeWireMessage, probePageAgent, requestPageSnapshot } from './page-attach'
 import AppLayout from './components/AppLayout.vue'
 import { canSendMessage } from './components/files-from-clipboard'
 import {
@@ -81,6 +82,10 @@ let loadFailTimer: number | undefined
 const input = ref('')
 const sending = ref(false)
 const attachments = ref<PendingAttachment[]>([])
+/** OA 宿主是否加载了 page-agent.js */
+const pageAgentAvailable = ref(false)
+/** 用户已点选「附带当前页」，仅随下一次发送生效一次 */
+const pendingPageAttach = ref(false)
 
 const sidebarCollapsed = ref(typeof window !== 'undefined' ? window.innerWidth <= 768 : false)
 const inspectorOpen = ref(typeof window !== 'undefined' ? window.innerWidth > 1100 : true)
@@ -170,7 +175,9 @@ function preferredConversationId(preferId?: string): string {
   if (!list.length) return preferId || ''
   const withTitle = list.find((c) => (c.title ?? '').trim())
   if (withTitle) {
-    const preferred = preferId && list.find((c) => c.id === preferId && (c.title ?? '').trim())
+    const preferred = preferId
+      ? list.find((c) => c.id === preferId && (c.title ?? '').trim())
+      : undefined
     return preferred?.id || withTitle.id
   }
   if (preferId && list.some((c) => c.id === preferId)) return preferId
@@ -330,6 +337,29 @@ async function applyOpenedSession(s: ChatSessionInfo) {
   }
   if (activeConversationId.value) await loadMessagesForThread(activeConversationId.value)
   state.value = 'ready'
+  void refreshPageAgentAvailability()
+}
+
+async function refreshPageAgentAvailability() {
+  if (!embedded) {
+    pageAgentAvailable.value = false
+    pendingPageAttach.value = false
+    return
+  }
+  try {
+    pageAgentAvailable.value = await probePageAgent()
+  } catch {
+    pageAgentAvailable.value = false
+  }
+  if (!pageAgentAvailable.value) pendingPageAttach.value = false
+}
+
+function togglePageAttach() {
+  if (!pageAgentAvailable.value) {
+    ElMessage.warning('当前 OA 页未加载 page-agent.js，无法附带页面')
+    return
+  }
+  pendingPageAttach.value = !pendingPageAttach.value
 }
 
 async function onDevLoginSubmit() {
@@ -505,6 +535,21 @@ async function send(text?: string) {
   abortCtrl = new AbortController()
   const signal = abortCtrl.signal
   try {
+    // 仅当用户点选「附带当前页」时抓取一次；失败可继续发纯文本
+    let wireMessage = message
+    let pageAttached = false
+    const shouldAttach = pendingPageAttach.value && !!message
+    if (shouldAttach) {
+      try {
+        const snapshot = await requestPageSnapshot()
+        wireMessage = composeWireMessage(message, snapshot)
+        pageAttached = true
+      } catch (e) {
+        ElMessage.warning(`未能附带当前页：${errorMessage(e)}，将仅发送文字`)
+      }
+      pendingPageAttach.value = false
+    }
+
     let attachmentIds: string[] = []
     if (pending.length) {
       const files = pending.map((a) => a.file).filter((f): f is File => f instanceof File)
@@ -557,6 +602,7 @@ async function send(text?: string) {
           role: 'user',
           text: message,
           createdAt: now + (atts.length ? 1 : 0),
+          pageAttached,
         })
       }
       list.push({
@@ -573,7 +619,7 @@ async function send(text?: string) {
     let streamRaw = ''
     try {
       const r = await sendMessageStream(
-        message,
+        wireMessage,
         (piece) => {
           streamRaw += piece
           const display = assistantDisplayFields(streamRaw)
@@ -955,6 +1001,8 @@ defineExpose({
       :thread-id="threadId"
       :placeholder="placeholder"
       :memory-open="memoryOpen"
+      :page-agent-available="pageAgentAvailable"
+      :pending-page-attach="pendingPageAttach"
       @update:sidebar-collapsed="sidebarCollapsed = $event"
       @update:memory-open="memoryOpen = $event"
       @open-memory="memoryOpen = true"
@@ -972,6 +1020,7 @@ defineExpose({
       @regenerate="onRegenerate"
       @confirm-resolved="onConfirmResolved"
       @open-tools="onOpenTools"
+      @toggle-page-attach="togglePageAttach"
       @approve="onApprove"
       @reject="onReject"
     />

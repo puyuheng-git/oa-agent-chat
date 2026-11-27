@@ -20,6 +20,8 @@ const props = defineProps<{
   maxChars: number
   attachments: PendingAttachment[]
   placeholder?: string
+  pageAgentAvailable?: boolean
+  pendingPageAttach?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +33,7 @@ const emit = defineEmits<{
   regenerate: [msg: ChatMessage]
   confirmResolved: [msg: ChatMessage, reply: Reply]
   'open-tools': []
+  'toggle-page-attach': []
 }>()
 
 const dragDepth = ref(0)
@@ -91,11 +94,14 @@ function onDrop(e: DragEvent) {
       :sending="sending"
       :attachments="attachments"
       :placeholder="placeholder"
+      :page-agent-available="pageAgentAvailable"
+      :pending-page-attach="pendingPageAttach"
       @update:model-value="emit('update:input', $event)"
       @update:attachments="emit('update:attachments', $event)"
       @send="emit('send')"
       @stop="emit('stop')"
       @open-tools="emit('open-tools')"
+      @toggle-page-attach="emit('toggle-page-attach')"
     />
   </section>
 </template>

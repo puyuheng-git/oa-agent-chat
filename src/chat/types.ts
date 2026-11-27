@@ -50,6 +50,8 @@ export interface ChatMessage {
   streaming?: boolean
   createdAt: number
   attachments?: PendingAttachment[]
+  /** 本条用户消息是否附带了 OA 页面快照（气泡展示标记，不渲染 JSON） */
+  pageAttached?: boolean
   delivery?: DeliverySummary
 }
 

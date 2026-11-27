@@ -198,6 +198,7 @@ VITE_API_BASE_URL=https://agent-api.example.com npm run build
 | `dist/index.html` | 对话页 |
 | `dist/assets/*` | 带哈希 JS/CSS，可长期缓存 |
 | `dist/embed.js` | OA 悬浮挂件 |
+| `dist/page-agent.js` | OA 宿主页感知脚本（附带当前页快照） |
 
 将 **整个** `dist` **目录** 部署到静态站点（Nginx、OSS+CDN、S3 等均可）。对外根 URL 记为 `{CHAT_STATIC_URL}`（无尾斜杠）。
 
@@ -322,28 +323,34 @@ OA 换码成功后须 **HTTP 302**（或等价跳转）到对话壳：
 
 OA 业务页引入：
 
-```html
-<script>
-  window.oaAgentConfig = {
-    // 必填：OA 侧换码宿主（相对或绝对均可）
-    hostUrl: '/general/ds/agent/assistant_host.php?mode=embed',
-    // 可选
-    title: 'OA 智能助手',
-    primaryColor: '#1C64F2',
-    width: '24rem',
-    height: '40rem',
-    right: '1.5rem',
-    bottom: '1.5rem',
-  }
-</script>
-<script src="{CHAT_STATIC_URL}/embed.js" charset="utf-8" defer></script>
+**现网 / 本机 OA 推荐配置方式（不要在各业务页手写 script）：**
+
+1. [`inc/oa_config.php`](D:/MYOA/webroot/inc/oa_config.php) 配置：
+
+```php
+$OA_AGENT_EMBED_JS_URL = '{CHAT_STATIC_URL}/embed.js';
+$OA_AGENT_PAGE_AGENT_JS_URL = '{CHAT_STATIC_URL}/page-agent.js'; // 空字符串则不加载页面感知
+$OA_AGENT_HOST_URL = '/general/ds/agent/assistant_host.php?mode=embed';
 ```
+
+2. 首页由 [`general/index.php`](D:/MYOA/webroot/general/index.php) include [`assistant_embed_boot.php`](D:/MYOA/webroot/general/ds/agent/assistant_embed_boot.php)，自动输出 `oaAgentConfig` + `embed.js` +（可选）`page-agent.js`。
+
+本地开发示例（对话壳 Vite `5173`）：
+
+```php
+$OA_AGENT_EMBED_JS_URL = 'http://127.0.0.1:5173/embed.js';
+$OA_AGENT_PAGE_AGENT_JS_URL = 'http://127.0.0.1:5173/page-agent.js';
+```
+
+先在 `oa-agent-chat` 执行 `npm run build:page-agent`（或完整 `npm run build`），确保 `public/page-agent.js` 存在；`npm run dev` 时 Vite 会从 `public/` 提供该文件。
 
 要点：
 
 - `charset="utf-8"` 必须保留（OA 页面常为 GBK）。
 - 配置里**不能**有员工身份或密钥；iframe 先打到 OA `hostUrl`，由 OA 换码后再 302 到对话壳。
 - 挂件标题栏「重新进入」会把 iframe `src` 重新设为带 `_t` 的 `hostUrl`，再次走 OA 换码。
+- 「附带当前页」仅在 embed 模式且宿主已加载 `page-agent.js` 时出现。
+- **采集目标**：脚本挂在 OA 顶层外壳（`general/index.php`）；会自动进入当前选中业务页 iframe（`#center .tabs-panel.selected iframe` 或经典 `frame[name=main]`）解析 Layui 表/表单，并兼顾顶层 `.layui-layer` 弹层。只采外壳 DOM 会看不到业务数据。
 
 ### 6.4 embed 模式 postMessage
 

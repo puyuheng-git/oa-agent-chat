@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "vue-tsc --noEmit && vite build",
+    "build:page-agent": "vite build --config vite.page-agent.config.ts",
+    "build": "vue-tsc --noEmit && npm run build:page-agent && vite build",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
   },

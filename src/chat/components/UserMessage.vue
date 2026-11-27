@@ -99,6 +99,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-else class="bubble">
       <div v-if="message.text" class="text">{{ message.text }}</div>
+      <div v-if="message.pageAttached" class="page-tag">已附带页面</div>
       <div v-if="message.attachments?.length" class="atts-wrap">
         <template v-for="a in message.attachments" :key="a.id">
           <button
@@ -137,6 +138,16 @@ onBeforeUnmount(() => {
   word-break: break-word;
   font-size: 15px;
   line-height: 1.55;
+}
+.page-tag {
+  margin-top: 8px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 .atts-wrap {
   margin: 8px 0 0;

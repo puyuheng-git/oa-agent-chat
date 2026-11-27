@@ -37,6 +37,8 @@ defineProps<{
   threadId?: string
   placeholder?: string
   memoryOpen: boolean
+  pageAgentAvailable?: boolean
+  pendingPageAttach?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -59,6 +61,7 @@ const emit = defineEmits<{
   reject: [id: string]
   'update:memoryOpen': [v: boolean]
   'open-memory': []
+  'toggle-page-attach': []
 }>()
 </script>
 
@@ -106,6 +109,8 @@ const emit = defineEmits<{
             :max-chars="maxChars"
             :attachments="attachments"
             :placeholder="placeholder"
+            :page-agent-available="pageAgentAvailable"
+            :pending-page-attach="pendingPageAttach"
             @update:input="emit('update:input', $event)"
             @update:attachments="emit('update:attachments', $event)"
             @send="emit('send')"
@@ -114,6 +119,7 @@ const emit = defineEmits<{
             @regenerate="emit('regenerate', $event)"
             @confirm-resolved="(msg, reply) => emit('confirmResolved', msg, reply)"
             @open-tools="emit('open-tools')"
+            @toggle-page-attach="emit('toggle-page-attach')"
           />
           <TaskInspector
             v-if="inspectorOpen"

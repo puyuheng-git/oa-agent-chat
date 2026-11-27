@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Paperclip, Promotion, VideoPause, Tools } from '@element-plus/icons-vue'
+import { Paperclip, Promotion, VideoPause, Tools, Monitor } from '@element-plus/icons-vue'
 import type { InputInstance } from 'element-plus'
 import AttachmentList from './AttachmentList.vue'
 import type { PendingAttachment } from '../types'
@@ -20,6 +20,10 @@ const props = defineProps<{
   sending: boolean
   placeholder?: string
   attachments: PendingAttachment[]
+  /** 宿主是否已加载 page-agent */
+  pageAgentAvailable?: boolean
+  /** 是否将在下次发送附带当前页 */
+  pendingPageAttach?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +32,7 @@ const emit = defineEmits<{
   stop: []
   'update:attachments': [items: PendingAttachment[]]
   'open-tools': []
+  'toggle-page-attach': []
 }>()
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -121,6 +126,10 @@ function removeAtt(id: string) {
     <div class="composer-inner">
       <AttachmentList :items="attachments" @remove="removeAtt" />
       <p v-if="attachHint" class="attach-status">{{ attachHint }}</p>
+      <p v-if="pendingPageAttach" class="page-attach-status">
+        将附带当前 OA 页面
+        <button type="button" class="cancel-page" @click="emit('toggle-page-attach')">取消</button>
+      </p>
       <div :class="['box', { focused, sending }]">
         <el-input
           ref="textInput"
@@ -148,6 +157,20 @@ function removeAtt(id: string) {
               <button type="button" class="tool-btn" @click="emit('open-tools')">
                 <el-icon :size="16"><Tools /></el-icon>
                 <span>工具</span>
+              </button>
+            </el-tooltip>
+            <el-tooltip
+              v-if="pageAgentAvailable"
+              :content="pendingPageAttach ? '取消附带当前页' : '附带当前 OA 页面（仅随下一条消息发送一次）'"
+              placement="top"
+            >
+              <button
+                type="button"
+                :class="['tool-btn', { active: pendingPageAttach }]"
+                @click="emit('toggle-page-attach')"
+              >
+                <el-icon :size="16"><Monitor /></el-icon>
+                <span>当前页</span>
               </button>
             </el-tooltip>
             <input ref="fileInput" type="file" multiple class="hidden" :accept="ACCEPT" @change="onFiles" />
@@ -201,6 +224,31 @@ function removeAtt(id: string) {
   background: var(--ds-warning-bg);
   border-radius: 6px;
   padding: 5px 10px;
+}
+.page-attach-status {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--ds-brand);
+  background: var(--ds-brand-soft);
+  border-radius: 6px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cancel-page {
+  border: none;
+  background: transparent;
+  color: var(--ds-brand);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+.tool-btn.active {
+  background: var(--ds-brand-soft);
+  color: var(--ds-brand);
 }
 .box {
   background: var(--ds-page);
